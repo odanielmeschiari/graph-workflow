@@ -331,6 +331,285 @@
     ta.focus();
   }
 
+  // ---------- distribuição automática ----------
+  // Configuração guardada no grafo: { mode: 'number'|'rank', members: [], diff: {id: número}, order: [{id, tie}] }
+  function cleanDist(d) {
+    if (!d || typeof d !== 'object') return undefined;
+    const members = (Array.isArray(d.members) ? d.members : []).map((m) => String(m).trim().slice(0, 60)).filter(Boolean)
+      .filter((m, i, a) => a.indexOf(m) === i).slice(0, 50);
+    const diff = {};
+    if (d.diff && typeof d.diff === 'object') {
+      for (const [k, v] of Object.entries(d.diff)) { const x = Number(v); if (Number.isFinite(x) && x > 0) diff[k] = Math.min(x, 1000); }
+    }
+    const order = (Array.isArray(d.order) ? d.order : []).filter((o) => o && typeof o.id === 'string').map((o) => ({ id: o.id, tie: !!o.tie }));
+    return { mode: d.mode === 'rank' ? 'rank' : 'number', members, diff, order };
+  }
+  function saveDist(d) {
+    try { state.graph = store.put({ ...state.graph, dist: cleanDist(d) }); } catch (e) { toast(e.message); }
+  }
+
+  function rng(seed) {
+    return () => {
+      seed = (seed + 0x6D2B79F5) | 0;
+      let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Distribui as tarefas pendentes entre as pessoas.
+  // Cada pessoa é uma "máquina" e a dificuldade é a duração. Custo = 3 × (maior carga − menor carga) + duração total,
+  // ou seja, o equilíbrio de carga pesa mais, e a duração total (que cresce quando alguém fica parado esperando
+  // outra pessoa) desempata. Começa de uma divisão gulosa (prioridade ao caminho mais longo até o fim) e melhora
+  // trocando/movendo tarefas, com algumas partidas aleatórias determinísticas.
+  function distribute(tasks, weight, members) {
+    const pend = tasks.filter((x) => !x.done);
+    const n = pend.length, P = members.length;
+    const idx = new Map(pend.map((x, i) => [x.id, i]));
+    const w = pend.map((x) => weight.get(x.id) || 1);
+    const deps = pend.map((x) => x.deps.filter((d) => idx.has(d)).map((d) => idx.get(d)));
+    const succ = pend.map(() => []);
+    deps.forEach((ds, i) => ds.forEach((d) => succ[d].push(i)));
+
+    const bl = new Array(n).fill(-1); // caminho mais longo (em dificuldade) daqui até o fim
+    const blOf = (i) => (bl[i] >= 0 ? bl[i] : (bl[i] = w[i] + succ[i].reduce((m, j) => Math.max(m, blOf(j)), 0)));
+    for (let i = 0; i < n; i++) blOf(i);
+
+    // ordem de escalonamento: respeita dependências, prioriza o caminho mais longo
+    const indeg = deps.map((d) => d.length);
+    const avail = [];
+    indeg.forEach((k, i) => { if (!k) avail.push(i); });
+    const order = [];
+    while (avail.length) {
+      let k = 0;
+      for (let a = 1; a < avail.length; a++) {
+        if (bl[avail[a]] > bl[avail[k]] || (bl[avail[a]] === bl[avail[k]] && avail[a] < avail[k])) k = a;
+      }
+      const i = avail.splice(k, 1)[0];
+      order.push(i);
+      for (const j of succ[i]) if (--indeg[j] === 0) avail.push(j);
+    }
+
+    const evaluate = (asg) => {
+      const free = new Array(P).fill(0), load = new Array(P).fill(0), cnt = new Array(P).fill(0), fin = new Array(n).fill(0);
+      let makespan = 0;
+      for (const i of order) {
+        const p = asg[i];
+        let start = free[p];
+        for (const d of deps[i]) if (fin[d] > start) start = fin[d];
+        fin[i] = start + w[i];
+        free[p] = fin[i];
+        load[p] += w[i]; cnt[p]++;
+        if (fin[i] > makespan) makespan = fin[i];
+      }
+      const imb = Math.max(...load) - Math.min(...load);
+      const cimb = Math.max(...cnt) - Math.min(...cnt);
+      return { cost: 3 * imb + makespan + 0.01 * cimb, makespan, load };
+    };
+
+    const improve = (asg, deadline) => {
+      let cur = evaluate(asg).cost;
+      for (let pass = 0; pass < 100 && performance.now() < deadline; pass++) {
+        let better = false;
+        for (let i = 0; i < n; i++) {
+          for (let p = 0; p < P; p++) {
+            if (p === asg[i]) continue;
+            const old = asg[i];
+            asg[i] = p;
+            const c = evaluate(asg).cost;
+            if (c < cur - 1e-9) { cur = c; better = true; } else asg[i] = old;
+          }
+        }
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            if (asg[i] === asg[j]) continue;
+            [asg[i], asg[j]] = [asg[j], asg[i]];
+            const c = evaluate(asg).cost;
+            if (c < cur - 1e-9) { cur = c; better = true; } else [asg[i], asg[j]] = [asg[j], asg[i]];
+          }
+        }
+        if (!better) break;
+      }
+      return cur;
+    };
+
+    // partida gulosa: cada tarefa vai para quem tem menos carga (empate: quem fica livre antes)
+    const greedy = new Array(n).fill(0);
+    {
+      const free = new Array(P).fill(0), load = new Array(P).fill(0), fin = new Array(n).fill(0);
+      for (const i of order) {
+        const ready = deps[i].reduce((m, d) => Math.max(m, fin[d]), 0);
+        let best = 0;
+        for (let p = 1; p < P; p++) {
+          const dl = load[p] - load[best];
+          if (dl < -1e-9 || (Math.abs(dl) <= 1e-9 && Math.max(free[p], ready) < Math.max(free[best], ready))) best = p;
+        }
+        greedy[i] = best;
+        fin[i] = Math.max(free[best], ready) + w[i];
+        free[best] = fin[i]; load[best] += w[i];
+      }
+    }
+    const deadline = performance.now() + 1500;
+    let best = greedy, bestCost = improve(best, deadline);
+    const rand = rng(12345);
+    const starts = n <= 40 ? 24 : n <= 100 ? 6 : 0;
+    for (let r = 0; r < starts && performance.now() < deadline; r++) {
+      const shuffled = [...order];
+      for (let k = shuffled.length - 1; k > 0; k--) { const j = Math.floor(rand() * (k + 1)); [shuffled[k], shuffled[j]] = [shuffled[j], shuffled[k]]; }
+      const asg = new Array(n).fill(0);
+      shuffled.forEach((i, k) => { asg[i] = k % P; });
+      const c = improve(asg, deadline);
+      if (c < bestCost - 1e-9) { best = asg; bestCost = c; }
+    }
+
+    const ev = evaluate(best);
+    const total = w.reduce((a, b) => a + b, 0);
+    return {
+      owners: new Map(pend.map((x, i) => [x.id, members[best[i]]])),
+      people: members.map((name, p) => ({ name, load: ev.load[p], ids: order.filter((i) => best[i] === p).map((i) => pend[i].id) })),
+      makespan: ev.makespan,
+      idle: ev.makespan ? Math.max(0, 1 - total / (ev.makespan * P)) : 0,
+    };
+  }
+
+  function showDistribute() {
+    const pend = () => state.draft.filter((x) => !x.done);
+    const d = cleanDist(state.graph.dist) || { mode: 'number', members: [], diff: {}, order: [] };
+    if (!d.members.length) d.members = [...new Set(state.draft.map((x) => x.owner.trim()).filter(Boolean))];
+    const fmt = (x) => String(Math.round(x * 100) / 100);
+    let result = null;
+
+    const tasksBox = h('div', { class: 'dtasks' });
+    const membersBox = h('div', { class: 'chips' });
+    const resultBox = h('div', { class: 'dres', 'aria-live': 'polite' });
+    const apply = h('button', { class: 'primary', text: 'Aplicar', disabled: true });
+    const clearResult = () => { result = null; resultBox.replaceChildren(); apply.disabled = true; };
+
+    // ordenação: mantém a ordem salva das tarefas que ainda existem; as novas vão para o fim
+    const reconcile = () => {
+      const ids = new Set(pend().map((x) => x.id)), seen = new Set();
+      d.order = d.order.filter((o) => ids.has(o.id) && !seen.has(o.id) && seen.add(o.id));
+      for (const x of pend()) if (!seen.has(x.id)) d.order.push({ id: x.id, tie: false });
+      if (d.order.length) d.order[0].tie = false;
+    };
+
+    const renderTasks = () => {
+      const byId = new Map(state.draft.map((x) => [x.id, x]));
+      if (!pend().length) { tasksBox.replaceChildren(h('p', { class: 'hint', text: 'Não há tarefas pendentes para distribuir.' })); return; }
+      if (d.mode === 'number') {
+        tasksBox.replaceChildren(...pend().map((x) => h('label', { class: 'drow' },
+          h('b', { text: x.id }),
+          h('span', { class: 'dname', text: x.name || '(sem nome)' }),
+          h('input', { type: 'number', min: 0.1, step: 'any', placeholder: '1', value: d.diff[x.id] ?? '', 'aria-label': `Dificuldade de ${x.id}`,
+            oninput: (e) => {
+              const v = parseFloat(e.target.value);
+              if (v > 0) d.diff[x.id] = Math.min(v, 1000); else delete d.diff[x.id];
+              clearResult();
+            } }))));
+        return;
+      }
+      reconcile();
+      const move = (i, k) => {
+        [d.order[i], d.order[i + k]] = [d.order[i + k], d.order[i]];
+        d.order[0].tie = false;
+        renderTasks(); clearResult();
+      };
+      tasksBox.replaceChildren(
+        h('p', { class: 'hint', text: 'Da mais difícil (no topo) para a mais fácil. Marque "= anterior" para empatar com a tarefa de cima.' }),
+        ...d.order.map((o, i) => {
+          const x = byId.get(o.id);
+          return h('div', { class: 'drow' },
+            h('button', { class: 'ghost', text: '↑', title: 'Subir', 'aria-label': `Subir ${o.id}`, disabled: i === 0, onclick: () => move(i, -1) }),
+            h('button', { class: 'ghost', text: '↓', title: 'Descer', 'aria-label': `Descer ${o.id}`, disabled: i === d.order.length - 1, onclick: () => move(i, 1) }),
+            h('b', { text: o.id }),
+            h('span', { class: 'dname', text: x.name || '(sem nome)' }),
+            h('label', { class: 'opt tie' },
+              h('input', { type: 'checkbox', checked: o.tie, disabled: i === 0, onchange: (e) => { o.tie = e.target.checked; clearResult(); } }),
+              '= anterior'));
+        }));
+    };
+
+    const renderMembers = () => {
+      membersBox.replaceChildren(...d.members.map((m, i) => h('span', { class: 'chip' }, m,
+        h('button', { class: 'ghost', text: '✕', title: 'Remover', 'aria-label': `Remover ${m}`, onclick: () => { d.members.splice(i, 1); renderMembers(); clearResult(); } }))));
+      if (!d.members.length) membersBox.append(h('span', { class: 'hint', text: 'Nenhum integrante ainda.' }));
+    };
+    const nameInput = h('input', { placeholder: 'Nome do integrante', 'aria-label': 'Nome do integrante', maxlength: 60 });
+    const addMembers = () => {
+      for (const raw of nameInput.value.split(/[,;\n]+/)) {
+        const name = raw.trim().slice(0, 60);
+        if (name && d.members.length < 50 && !d.members.some((m) => m.toLowerCase() === name.toLowerCase())) d.members.push(name);
+      }
+      nameInput.value = '';
+      renderMembers(); clearResult();
+      nameInput.focus();
+    };
+    nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addMembers(); } });
+
+    // dificuldade de cada tarefa pendente, a partir do modo escolhido
+    const weights = () => {
+      if (d.mode === 'number') return new Map(pend().map((x) => [x.id, d.diff[x.id] || 1]));
+      reconcile();
+      const groups = [];
+      d.order.forEach((o, i) => { if (o.tie && i > 0) groups[groups.length - 1].push(o.id); else groups.push([o.id]); });
+      const out = new Map();
+      groups.forEach((g, k) => g.forEach((id) => out.set(id, groups.length - k))); // mais difícil = maior peso
+      return out;
+    };
+
+    const run = () => {
+      if (validate(state.draft).errors.length) { toast('Corrija os erros do painel de tarefas antes de distribuir.'); return; }
+      if (!pend().length) { toast('Não há tarefas pendentes para distribuir.'); return; }
+      if (nameInput.value.trim()) addMembers();
+      if (!d.members.length) { toast('Adicione ao menos um integrante.'); nameInput.focus(); return; }
+      result = distribute(state.draft, weights(), d.members);
+      resultBox.replaceChildren(
+        ...result.people.map((p) => h('div', { class: 'p' },
+          h('strong', { text: p.name }),
+          h('span', { class: 'load', text: `carga ${fmt(p.load)} · ${p.ids.length} tarefa(s)` }),
+          h('div', { class: 'ids', text: p.ids.join(', ') || '—' }))),
+        h('p', { class: 'hint', text: `Duração estimada ${fmt(result.makespan)} · tempo ocioso ${Math.round(result.idle * 100)}% (considerando dificuldade como tempo)` }));
+      apply.disabled = false;
+      saveDist(d);
+    };
+
+    apply.addEventListener('click', () => {
+      if (!result) return;
+      for (const x of state.draft) if (result.owners.has(x.id)) x.owner = result.owners.get(x.id);
+      saveDist(d);
+      dlg.close();
+      renderRows();
+      onDraftChange();
+      toast('Responsáveis atualizados. Você ainda pode editar manualmente.');
+    });
+
+    const radio = (value, text) => h('label', { class: 'opt' },
+      h('input', { type: 'radio', name: 'dmode', value, checked: d.mode === value,
+        onchange: () => { d.mode = value; renderTasks(); clearResult(); } }), text);
+
+    const dlg = h('dialog', { class: 'summary dist' },
+      h('h2', { text: 'Distribuir tarefas' }),
+      h('p', { class: 'hint', text: 'Divide as tarefas pendentes entre as pessoas, equilibrando a carga e deixando todo mundo com algo para fazer ao mesmo tempo.' }),
+      h('h3', { text: '1. Dificuldade das tarefas' }),
+      h('div', { class: 'dmodes' }, radio('number', 'Informar um número'), radio('rank', 'Ordenar da mais difícil à mais fácil')),
+      tasksBox,
+      h('h3', { text: '2. Integrantes da equipe' }),
+      membersBox,
+      h('div', { class: 'dadd' }, nameInput, h('button', { text: 'Adicionar', onclick: addMembers })),
+      h('h3', { text: '3. Resultado' }),
+      resultBox,
+      h('div', { class: 'summary-actions' },
+        h('button', { text: 'Distribuir', onclick: run }),
+        apply,
+        h('button', { text: 'Fechar', onclick: () => dlg.close() })));
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+    dlg.addEventListener('close', () => { saveDist(d); dlg.remove(); });
+    renderTasks();
+    renderMembers();
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
   // ---------- ações ----------
   function refreshSaveState() {
     if (!refs.saveState) return;
@@ -554,6 +833,7 @@
       h('span', { class: 'sep' }),
       h('button', { 'aria-pressed': String(showPanel), text: 'Tarefas', title: 'Mostrar ou ocultar o painel de tarefas', onclick: () => setPanel(!showPanel) }),
       h('button', { text: 'Resumo', title: 'Gerar o resumo das próximas tarefas', onclick: showSummary }),
+      h('button', { text: 'Distribuir', title: 'Distribuir as tarefas entre a equipe automaticamente', onclick: showDistribute }),
       h('span', { class: 'sep' }),
       h('button', { text: '−', title: 'Diminuir', 'aria-label': 'Diminuir', onclick: () => setZoom(state.zoom - 0.1) }),
       h('button', { text: '+', title: 'Aumentar', 'aria-label': 'Aumentar', onclick: () => setZoom(state.zoom + 0.1) }),
@@ -596,7 +876,7 @@
         let n = 0;
         for (const g of graphs) {
           if (store.get(g.id) && !overwrite) continue;
-          store.put({ id: g.id, name: g.name.slice(0, 80), tasks: g.tasks.map((t) => ({
+          store.put({ id: g.id, name: g.name.slice(0, 80), dist: cleanDist(g.dist), tasks: g.tasks.map((t) => ({
             id: t.id, name: String(t.name ?? ''), owner: String(t.owner ?? ''), desc: String(t.desc ?? '').slice(0, 1000), deps: t.deps.map(String), done: !!t.done })) });
           n++;
         }

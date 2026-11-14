@@ -26,6 +26,11 @@ os dados ficam no navegador (localStorage), sem servidor e sem internet.
    espaço ao grafo; o botão **Tarefas** da doca o mostra de novo.
 5. O botão **Resumo** na doca gera um texto com as próximas tarefas (só as liberadas e ainda não
    concluídas), separado por responsável, pronto para copiar.
+6. O botão **Distribuir** na doca divide as tarefas pendentes entre a equipe: informe a dificuldade de
+   cada tarefa (um número, ou ordenando da mais difícil à mais fácil, com empates) e os integrantes.
+   O algoritmo equilibra a carga de cada pessoa e tenta deixar todos com tarefas em paralelo, sem
+   ninguém ocioso esperando outra pessoa. Veja a prévia e clique em **Aplicar**; os responsáveis
+   continuam editáveis à mão. Tarefas já concluídas não são alteradas.
 
 ## Seus dados
 
