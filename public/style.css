@@ -160,7 +160,9 @@ select option { color: #111; }
 dialog.summary { width: min(640px, 92vw); padding: 18px; color: var(--ink); background: #1b1850; border: 1px solid var(--edge); border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
 dialog.summary::backdrop { background: rgba(8, 6, 24, .6); }
 dialog.summary h2 { margin: 0 0 10px; font-size: 18px; letter-spacing: -.01em; }
-.summary-text { width: 100%; min-height: 220px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; line-height: 1.5; }
+.dline { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 14px; }
+.dline input { margin-left: 6px; }
+.summary-text { width: 100%; min-height: 260px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; line-height: 1.5; }
 .summary-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 
 /* Distribuição */
@@ -178,6 +180,11 @@ dialog.dist { width: min(760px, 94vw); }
 .drow button.ghost { padding: 2px 8px; }
 .drow button:disabled { opacity: .3; cursor: default; }
 .drow .tie { font-size: 13px; color: var(--muted); }
+.drow.rank { user-select: none; cursor: grab; }
+.drow .grip { cursor: grab; touch-action: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 2px; }
+.drow.dragging { position: relative; z-index: 3; cursor: grabbing; background: #2c3a85; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+.drow.drop-before { box-shadow: 0 -4px 0 #ffd84d; }
+.drow.drop-after { box-shadow: 0 4px 0 #ffd84d; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .chip { display: inline-flex; align-items: center; gap: 2px; padding: 3px 4px 3px 11px; border-radius: 99px; background: rgba(255, 255, 255, .12); border: 1px solid var(--edge); font-weight: 600; }
 .chip button { padding: 0 7px; line-height: 1.3; }

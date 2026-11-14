@@ -30,7 +30,12 @@ os dados ficam no navegador (localStorage), sem servidor e sem internet.
    cada tarefa (um número, ou ordenando da mais difícil à mais fácil, com empates) e os integrantes.
    O algoritmo equilibra a carga de cada pessoa e tenta deixar todos com tarefas em paralelo, sem
    ninguém ocioso esperando outra pessoa. Veja a prévia e clique em **Aplicar**; os responsáveis
-   continuam editáveis à mão. Tarefas já concluídas não são alteradas.
+   continuam editáveis à mão. Tarefas já concluídas não são alteradas. Na ordenação, arraste as
+   tarefas (ou use as setas) para reordenar.
+7. No **Resumo** dá para informar a **data de entrega** do projeto. O resumo passa a incluir um plano
+   para os próximos 7 dias (por responsável, com as datas de início e fim de cada tarefa), calculado a
+   partir das dependências, da dificuldade e dos responsáveis já definidos, no ritmo necessário para
+   entregar a tempo. Contam dias corridos.
 
 ## Seus dados
 
