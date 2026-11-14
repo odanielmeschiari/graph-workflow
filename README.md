@@ -22,6 +22,10 @@ os dados ficam no navegador (localStorage), sem servidor e sem internet.
 3. **Clique nos nós** para concluir: uma tarefa liberada (branca) fica verde, e as setas que saem
    dela também. Quando todas as setas de entrada de uma tarefa bloqueada ficam verdes, ela passa a
    liberada. Clique de novo para desfazer (só se nenhuma tarefa que dependa dela estiver concluída).
+   Cada tarefa também aceita uma **dificuldade** (número opcional, quanto maior mais difícil), no campo
+   "Dific." do painel ou, na colagem, como quarta coluna (`T07 - Nome | Ana | T01 | 3`).
+   Ela aparece no canto inferior direito do nó, num selo que vai do verde (mais fácil do grafo) ao
+   vermelho (mais difícil), e é a mesma usada no botão **Distribuir**.
 4. O botão **Ocultar** no topo do painel (ou **Tarefas** na doca) esconde o painel para dar mais
    espaço ao grafo; o botão **Tarefas** da doca o mostra de novo.
 5. O botão **Resumo** na doca gera um texto com as próximas tarefas (só as liberadas e ainda não
@@ -43,6 +47,11 @@ os dados ficam no navegador (localStorage), sem servidor e sem internet.
    pista própria, em vez de passar por cima delas, e fica mais discreta que as setas do fluxo
    principal. Aponte (ou foque com o teclado) uma tarefa para realçar só as setas que entram e saem
    dela.
+
+O **relógio** no topo mostra a porcentagem de conclusão do projeto. Se alguma tarefa tem dificuldade, o
+cálculo é por peso (dificuldade das concluídas ÷ dificuldade total; tarefa sem dificuldade conta 1);
+senão, é pela quantidade de tarefas. Passe o mouse sobre ele para ver os números. Os cartões da tela
+inicial usam o mesmo cálculo na barra de progresso.
 
 ## Seus dados
 

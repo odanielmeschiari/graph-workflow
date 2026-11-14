@@ -1,5 +1,5 @@
 // Service worker: guarda os arquivos do app para abrir offline quando hospedado (http/https).
-const CACHE = 'grafo-tarefas-v3';
+const CACHE = 'grafo-tarefas-v4';
 const FILES = ['./', 'index.html', 'style.css', 'app.js'];
 
 self.addEventListener('install', (e) => {

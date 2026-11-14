@@ -23,6 +23,7 @@ body {
   scrollbar-color: rgba(255, 255, 255, .35) transparent;
 }
 #app { min-height: 100%; display: flex; flex-direction: column; }
+[hidden] { display: none !important; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button {
   cursor: pointer;
@@ -59,13 +60,25 @@ select option { color: #111; }
 .brand { display: inline-flex; align-items: center; gap: 9px; color: #fff; text-decoration: none; font-weight: 800; letter-spacing: -.01em; }
 .brand .logo { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #3d6bff, #8b5cf6); }
 .brand:hover span:last-child { text-decoration: underline; }
-.progress { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+.progress { display: inline-flex; align-items: center; gap: 9px; }
+.progress .ptxt { display: flex; flex-direction: column; line-height: 1.25; }
+.progress .ptxt b { font-size: 13px; font-weight: 700; }
+.progress .ptxt small { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+/* relógio de conclusão */
+.clock { flex: none; display: block; }
+.clock .tick { stroke: rgba(255, 255, 255, .4); stroke-width: 1.3; stroke-linecap: round; }
+.clock .track { fill: rgba(10, 8, 30, .35); stroke: rgba(255, 255, 255, .2); stroke-width: 5; }
+.clock .arc { fill: none; stroke: var(--green); stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset .5s ease; }
+.clock .pct { fill: #fff; font-size: 12px; font-weight: 800; text-anchor: middle; letter-spacing: -.02em; }
 .bar { display: inline-block; width: 96px; height: 7px; background: rgba(255, 255, 255, .22); border-radius: 99px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--green); border-radius: 99px; }
 .legend { display: inline-flex; gap: 14px; font-size: 13px; color: var(--muted); }
 .legend i { display: inline-block; width: 13px; height: 13px; border-radius: 5px; border: 2px solid; margin-right: 6px; vertical-align: -2px; }
 .legend .l-done { background: var(--green-deep); border-color: var(--green); }
 .legend .l-ready { background: #fff; border-color: var(--blue); }
+.legend .l-diff { display: inline-flex; align-items: center; }
+.legend i.grad { width: 46px; height: 8px; border: 0; border-radius: 99px; margin: 0 6px; vertical-align: 0;
+  background: linear-gradient(90deg, hsl(130, 78%, 40%), hsl(65, 78%, 40%), hsl(0, 78%, 40%)); }
 .legend .l-blocked { background: rgba(255, 255, 255, .12); border: 2px dashed rgba(255, 255, 255, .55); }
 .topbar select { padding: 5px 9px; }
 
@@ -97,6 +110,9 @@ select option { color: #111; }
 .node.clickable { cursor: pointer; }
 .node.clickable:hover rect.box { stroke-width: 4.5; }
 .node.dim { opacity: .3; }
+/* dificuldade: selo no canto inferior direito, verde (fácil) → vermelho (difícil); a cor vem do atributo fill */
+.node .t-diffbox { stroke: rgba(255, 255, 255, .9); stroke-width: 1.5; pointer-events: none; }
+.node text.t-diff { fill: #fff; font-size: 11.5px; font-weight: 800; text-anchor: middle; }
 .node:focus-visible { outline: none; }
 .node:focus-visible rect.box { stroke: #ffd84d; stroke-width: 5; }
 .edge { fill: none; stroke: rgba(255, 255, 255, .5); stroke-width: 2; }
@@ -130,7 +146,7 @@ select option { color: #111; }
 .rows { flex: 1; overflow: auto; padding: 4px 14px 10px; display: grid; gap: 10px; align-content: start; }
 .trow { display: grid; grid-template-columns: 74px 1fr 30px; gap: 6px; padding: 9px; background: rgba(8, 12, 34, .55); border: 1px solid rgba(255, 255, 255, .12); border-radius: 11px; }
 .trow.bad { border-color: var(--red); }
-.trow .full { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.trow .full { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr 70px; gap: 6px; }
 .trow input[name="id"] { font-weight: 800; }
 .trow textarea.desc { grid-column: 1 / -1; min-height: 0; resize: vertical; font-size: 13.5px; line-height: 1.4; background: rgba(255, 255, 255, .09); border: 1px solid rgba(255, 255, 255, .22); border-radius: 8px; padding: 7px 10px; }
 .trow button.rm { padding: 3px; line-height: 1; align-self: start; }
@@ -256,4 +272,4 @@ dialog.summary select option { color: #111; }
   .home h1 { font-size: 36px; }
   .welcome h1 { font-size: 40px; }
 }
-@media (prefers-reduced-motion: reduce) { #toast, .edge { transition: none; } }
+@media (prefers-reduced-motion: reduce) { #toast, .edge, .clock .arc { transition: none; } }

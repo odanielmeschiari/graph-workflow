@@ -45,7 +45,7 @@
       return out;
     },
     get(id) {
-      try { return JSON.parse(localStorage.getItem(PREFIX + id)); } catch { return null; }
+      try { return normalizeGraph(JSON.parse(localStorage.getItem(PREFIX + id))); } catch { return null; }
     },
     put(g) {
       g.updatedAt = new Date().toISOString();
@@ -78,6 +78,44 @@
   const clone = (tasks) => tasks.map((t) => ({ ...t, desc: t.desc || '', deps: [...t.deps] }));
   const viewTasks = () => state.draft;
   const PANEL_KEY = 'grafo-tarefas:panel';
+
+  // ---------- dificuldade e progresso ----------
+  // A dificuldade é um campo da tarefa (`diff`, número > 0, opcional). Versões antigas a guardavam em
+  // `dist.diff` (por sigla, só no diálogo Distribuir): copia para as tarefas que ainda não têm uma.
+  function normalizeGraph(g) {
+    if (!g || !Array.isArray(g.tasks)) return g;
+    const legacy = g.dist && g.dist.diff && typeof g.dist.diff === 'object' ? g.dist.diff : null;
+    if (!legacy || !Object.keys(legacy).length) return g;
+    for (const t of g.tasks) {
+      if (!t || typeof t !== 'object' || t.diff > 0) continue;
+      const v = Number(legacy[t.id]);
+      if (v > 0) t.diff = Math.min(v, 1000);
+    }
+    g.dist = { ...g.dist, diff: {} };
+    return g;
+  }
+  const cleanDiff = (v) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? Math.min(x, 1000) : undefined; };
+  const fmtNum = (x) => x.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+
+  // Porcentagem de conclusão: pelo peso (dificuldade) quando alguma tarefa tem dificuldade (as sem dificuldade
+  // contam 1, como na distribuição); senão, pela quantidade de tarefas.
+  function progressOf(tasks) {
+    const weighted = tasks.some((t) => t.diff > 0);
+    const wt = (t) => (weighted && t.diff > 0 ? t.diff : 1);
+    let total = 0, doneW = 0, done = 0;
+    for (const t of tasks) { total += wt(t); if (t.done) { doneW += wt(t); done++; } }
+    let pct = total ? Math.round((doneW / total) * 100) : 0;
+    if (done < tasks.length && pct >= 100) pct = 99; // nunca mostra 100% com tarefa pendente
+    if (done > 0 && pct === 0) pct = 1;
+    return { pct, weighted, count: tasks.length, done, doneW, total };
+  }
+
+  // Cor da dificuldade: verde (mais fácil do grafo) → amarelo → vermelho (mais difícil), relativa às tarefas do grafo.
+  function diffScale(tasks) {
+    const vs = tasks.filter((t) => t.diff > 0).map((t) => t.diff);
+    const min = Math.min(...vs), max = Math.max(...vs);
+    return (v) => `hsl(${Math.round(130 * (1 - (max > min ? (v - min) / (max - min) : 0.5)))}, 78%, 40%)`;
+  }
 
   // ---------- lógica do grafo ----------
   function statusOf(tasks) {
@@ -259,6 +297,7 @@
     svg.append(s('defs', {}, marker('arr-gray', 'arrow-gray'), marker('arr-green', 'arrow-green')));
 
     const dimmed = (t) => state.owner && t.owner !== state.owner;
+    const diffColor = diffScale(tasks);
     const edges = routes.map((r) => ({ from: byId.get(r.from), to: byId.get(r.to), lanes: r.lanes, on: !!byId.get(r.from).done }));
     edges.sort((a, b) => a.on - b.on); // verdes por cima
     const edgeLayer = s('g', {});
@@ -285,7 +324,10 @@
       const status = st.get(t.id);
       const clickable = status !== 'blocked' || t.done;
       const pending = t.deps.filter((d) => byId.has(d) && !byId.get(d).done);
-      const label = `${t.id} ${t.name}${t.owner ? `, responsável ${t.owner}` : ''}: ${STATE_LABEL[status]}${t.desc ? `. ${t.desc}` : ''}`;
+      const hasDiff = t.diff > 0;
+      const label = `${t.id} ${t.name}${t.owner ? `, responsável ${t.owner}` : ''}${hasDiff ? `, dificuldade ${fmtNum(t.diff)}` : ''}: ${STATE_LABEL[status]}${t.desc ? `. ${t.desc}` : ''}`;
+      const dTxt = hasDiff ? fmtNum(t.diff) : '';
+      const dW = 16 + dTxt.length * 7;
       const g = s('g', {
         class: `node ${status}${clickable ? ' clickable' : ''}${dimmed(t) ? ' dim' : ''}`,
         transform: `translate(${p.x} ${p.y})`,
@@ -299,7 +341,9 @@
       s('text', { class: 't-id', x: 16, y: 27, text: trunc(t.id, 10) }),
       s('text', { class: 't-state', x: NW - 16, y: 27, text: (status === 'done' ? '✓ ' : '') + STATE_LABEL[status] }),
       s('text', { class: 't-name', x: 16, y: 48, text: trunc(t.name || '(sem nome)', 27) }),
-      t.owner ? s('text', { class: 't-owner', x: 16, y: 66, text: trunc(t.owner, 30) }) : null);
+      t.owner ? s('text', { class: 't-owner', x: 16, y: 66, text: trunc(t.owner, hasDiff ? 20 : 30) }) : null,
+      hasDiff ? s('rect', { class: 't-diffbox', x: NW - 14 - dW, y: NH - 24, width: dW, height: 17, rx: 8.5, fill: diffColor(t.diff) }) : null,
+      hasDiff ? s('text', { class: 't-diff', x: NW - 14 - dW / 2, y: NH - 11.5, text: dTxt }) : null);
       g.addEventListener('click', () => toggleDone(t));
       g.addEventListener('pointerenter', () => light(t.id));
       g.addEventListener('pointerleave', () => light(null));
@@ -323,14 +367,32 @@
     sel.value = state.owner;
   }
 
+  // Relógio de conclusão: anel que enche no sentido horário, com marcas de hora e a porcentagem no centro.
+  const CLOCK_R = 19, CLOCK_C = 2 * Math.PI * CLOCK_R;
+  function buildClock() {
+    const svg = s('svg', { class: 'clock', viewBox: '0 0 56 56', width: 50, height: 50, 'aria-hidden': 'true' });
+    for (let i = 0; i < 12; i++) {
+      const a = (i * Math.PI) / 6, r1 = i % 3 ? 24 : 23, r2 = 26.5;
+      svg.append(s('line', { class: 'tick', x1: 28 + r1 * Math.sin(a), y1: 28 - r1 * Math.cos(a), x2: 28 + r2 * Math.sin(a), y2: 28 - r2 * Math.cos(a) }));
+    }
+    refs.arc = s('circle', { class: 'arc', cx: 28, cy: 28, r: CLOCK_R, transform: 'rotate(-90 28 28)', 'stroke-dasharray': CLOCK_C, 'stroke-dashoffset': CLOCK_C });
+    refs.pctText = s('text', { class: 'pct', x: 28, y: 32.5 });
+    svg.append(s('circle', { class: 'track', cx: 28, cy: 28, r: CLOCK_R }), refs.arc, refs.pctText);
+    return svg;
+  }
+
   function refreshProgress() {
-    const tasks = state.draft;
-    const done = tasks.filter((x) => x.done).length;
-    refs.progress.replaceChildren(
-      h('span', { class: 'bar' }, h('i', { style: `width:${tasks.length ? (done / tasks.length) * 100 : 0}%` })),
-      h('span', { text: `${done}/${tasks.length}` }),
-    );
-    refs.progress.title = `${done} de ${tasks.length} tarefas concluídas`;
+    const p = progressOf(state.draft);
+    refs.arc.setAttribute('stroke-dashoffset', String(CLOCK_C * (1 - p.pct / 100)));
+    refs.arc.style.visibility = p.pct > 0 ? 'visible' : 'hidden';
+    refs.pctText.textContent = `${p.pct}%`;
+    refs.progCount.textContent = `${p.done}/${p.count} tarefas`;
+    refs.progBasis.textContent = p.weighted ? 'por dificuldade' : 'por nº de tarefas';
+    refs.progress.title = `${p.pct}% concluído. ${p.done} de ${p.count} tarefas concluídas` +
+      (p.weighted ? `; ${fmtNum(p.doneW)} de ${fmtNum(p.total)} pontos de dificuldade (tarefa sem dificuldade conta 1).`
+        : '. Defina dificuldades nas tarefas para o cálculo considerar o peso de cada uma.');
+    refs.progress.setAttribute('aria-label', refs.progress.title);
+    if (refs.diffLegend) refs.diffLegend.hidden = !state.draft.some((t) => t.diff > 0);
   }
 
   function redraw() {
@@ -426,7 +488,7 @@
   function taskWeights(d) {
     const pend = state.draft.filter((x) => !x.done);
     if (!d) return new Map(pend.map((x) => [x.id, 1]));
-    if (d.mode === 'number') return new Map(pend.map((x) => [x.id, d.diff[x.id] || 1]));
+    if (d.mode === 'number') return new Map(pend.map((x) => [x.id, x.diff > 0 ? x.diff : 1]));
     reconcileOrder(d);
     const groups = [];
     d.order.forEach((o, i) => { if (o.tie && i > 0) groups[groups.length - 1].push(o.id); else groups.push([o.id]); });
@@ -570,15 +632,11 @@
       const byId = new Map(state.draft.map((x) => [x.id, x]));
       if (!pend().length) { tasksBox.replaceChildren(h('p', { class: 'hint', text: 'Não há tarefas pendentes para distribuir.' })); return; }
       if (d.mode === 'number') {
-        tasksBox.replaceChildren(...pend().map((x) => h('label', { class: 'drow' },
+        tasksBox.replaceChildren(h('p', { class: 'hint', text: 'A dificuldade é a mesma do painel Tarefas e aparece em cada tarefa do grafo. Sem número, conta 1.' }), ...pend().map((x) => h('label', { class: 'drow' },
           h('b', { text: x.id }),
           h('span', { class: 'dname', text: x.name || '(sem nome)' }),
-          h('input', { type: 'number', min: 0.1, step: 'any', placeholder: '1', value: d.diff[x.id] ?? '', 'aria-label': `Dificuldade de ${x.id}`,
-            oninput: (e) => {
-              const v = parseFloat(e.target.value);
-              if (v > 0) d.diff[x.id] = Math.min(v, 1000); else delete d.diff[x.id];
-              clearResult();
-            } }))));
+          h('input', { type: 'number', min: 0.1, step: 'any', placeholder: '1', value: x.diff ?? '', 'aria-label': `Dificuldade de ${x.id}`,
+            oninput: (e) => { x.diff = cleanDiff(parseFloat(e.target.value)); clearResult(); onDraftChange(); } }))));
         return;
       }
       reconcile();
@@ -728,7 +786,7 @@
         h('button', { text: 'Fechar', onclick: () => dlg.close() })));
     dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
     dlg.addEventListener('cancel', (e) => { if (dragBusy) e.preventDefault(); });
-    dlg.addEventListener('close', () => { saveDist(d); dlg.remove(); });
+    dlg.addEventListener('close', () => { saveDist(d); dlg.remove(); renderRows(); });
     renderTasks();
     renderMembers();
     document.body.append(dlg);
@@ -884,6 +942,7 @@
       desc: (x.desc || '').trim().slice(0, 1000),
       deps: [...new Set(x.deps)],
       done: !!x.done,
+      diff: cleanDiff(x.diff),
     }));
     // uma tarefa só pode ficar concluída se todas as dependências estiverem
     const byId = new Map(tasks.map((x) => [x.id, x]));
@@ -962,7 +1021,9 @@
           h('input', { name: 'owner', value: t.owner, placeholder: 'Responsável', 'aria-label': 'Responsável',
             oninput: (e) => { t.owner = e.target.value; onDraftChange(); } }),
           h('input', { name: 'deps', value: t.deps.join(', '), placeholder: 'Depende de: T01, T02', 'aria-label': 'Dependências',
-            oninput: (e) => { t.deps = parseDeps(e.target.value); onDraftChange(); } })),
+            oninput: (e) => { t.deps = parseDeps(e.target.value); onDraftChange(); } }),
+          h('input', { name: 'diff', type: 'number', min: 0.1, step: 'any', value: t.diff ?? '', placeholder: 'Dific.', title: 'Dificuldade (opcional): quanto maior, mais pesa no relógio e na distribuição', 'aria-label': 'Dificuldade',
+            oninput: (e) => { t.diff = cleanDiff(parseFloat(e.target.value)); onDraftChange(); } })),
         h('textarea', { name: 'desc', class: 'desc', rows: 2, maxlength: 1000, placeholder: 'Descrição (opcional)', 'aria-label': 'Descrição da tarefa',
           oninput: (e) => { t.desc = e.target.value; onDraftChange(); } }, t.desc || ''));
       refs.rows.append(row);
@@ -995,15 +1056,15 @@
       const parts = line.split('|').map((p) => p.trim());
       const m = parts[0].match(/^(\S+)\s*[-–—:]\s*(.*)$/) || parts[0].match(/^(\S+)\s+(.*)$/);
       if (!m) continue;
-      const entry = { id: m[1], name: m[2], owner: parts[1] || '', desc: '', deps: parseDeps(parts[2] || ''), done: false };
+      const entry = { id: m[1], name: m[2], owner: parts[1] || '', desc: '', deps: parseDeps(parts[2] || ''), done: false, diff: cleanDiff(parseFloat((parts[3] || '').replace(',', '.'))) };
       const existing = state.draft.find((t) => t.id === entry.id);
-      if (existing) Object.assign(existing, { name: entry.name, owner: entry.owner, deps: entry.deps }); // mantém a descrição
+      if (existing) Object.assign(existing, { name: entry.name, owner: entry.owner, deps: entry.deps }, entry.diff ? { diff: entry.diff } : {}); // mantém a descrição (e a dificuldade, se a linha não trouxer)
       else state.draft.push(entry);
       added++;
     }
     renderRows();
     onDraftChange();
-    toast(added ? `${added} linha(s) importada(s).` : 'Nenhuma linha reconhecida. Use: T07 - Nome | Responsável | T01, T02');
+    toast(added ? `${added} linha(s) importada(s).` : 'Nenhuma linha reconhecida. Use: T07 - Nome | Responsável | T01, T02 | 3');
   }
 
   // ---------- páginas ----------
@@ -1032,7 +1093,11 @@
       if (state.unsaved && !confirm('Há alterações com erro que não serão salvas. Sair mesmo?')) e.preventDefault();
     };
     refs.title = h('h1', { text: state.name || g.name });
-    refs.progress = h('span', { class: 'progress' });
+    refs.progCount = h('b');
+    refs.progBasis = h('small');
+    refs.progress = h('span', { class: 'progress', role: 'img' }, buildClock(), h('span', { class: 'ptxt' }, refs.progCount, refs.progBasis));
+    refs.diffLegend = h('span', { class: 'l-diff', hidden: true, title: 'Cor da dificuldade, relativa às tarefas deste grafo' },
+      'dificuldade: fácil', h('i', { class: 'grad' }), 'difícil');
     refs.canvas = h('div', { class: 'canvas' });
     refs.saveState = h('span', { class: 'savestate', role: 'status' });
     refs.ownerSel = h('select', { 'aria-label': 'Destacar tarefas de uma pessoa',
@@ -1044,6 +1109,7 @@
       refs.progress,
       h('span', { class: 'spacer' }),
       h('span', { class: 'legend' },
+        refs.diffLegend,
         h('span', {}, h('i', { class: 'l-done' }), 'concluída'),
         h('span', {}, h('i', { class: 'l-ready' }), 'liberada'),
         h('span', {}, h('i', { class: 'l-blocked' }), 'bloqueada')),
@@ -1055,7 +1121,7 @@
       refs.errors = h('ul', { class: 'errors', role: 'alert' });
       refs.nameInput = h('input', { class: 'gname', value: state.name || g.name, 'aria-label': 'Nome do grafo',
         oninput: (e) => { state.name = e.target.value; refs.title.textContent = state.name.trim() || g.name; scheduleSave(); } });
-      const ta = h('textarea', { placeholder: 'T01 - Modelar banco | Ana\nT02 - Criar API | Bruno | T01\nT07 - Construir árvore AVL | Ana | T01, T02, T03' });
+      const ta = h('textarea', { placeholder: 'T01 - Modelar banco | Ana\nT02 - Criar API | Bruno | T01\nT07 - Construir árvore AVL | Ana | T01, T02, T03 | 3' });
       main.append(h('aside', { class: 'editor' },
         h('div', { class: 'head' }, refs.nameInput,
           h('button', { class: 'hide', text: 'Ocultar', title: 'Ocultar o painel de tarefas', onclick: () => setPanel(false) })),
@@ -1063,7 +1129,7 @@
         refs.errors,
         h('details', {},
           h('summary', { text: 'Colar várias tarefas de uma vez' }),
-          h('p', { class: 'hint', text: 'Uma por linha: sigla - nome | responsável | dependências' }),
+          h('p', { class: 'hint', text: 'Uma por linha: sigla - nome | responsável | dependências | dificuldade (opcional)' }),
           ta,
           h('button', { text: 'Adicionar à lista', onclick: () => { importText(ta.value); ta.value = ''; } })),
         h('div', { class: 'foot' },
@@ -1147,9 +1213,10 @@
   function sanitizeGraph(g) {
     if (!g || typeof g !== 'object' || !Array.isArray(g.tasks)) return null;
     if (!g.tasks.every((t) => t && typeof t.id === 'string' && Array.isArray(t.deps))) return null;
+    normalizeGraph(g); // arquivos de versões antigas: dificuldade ainda em dist.diff
     const tasks = g.tasks.map((t) => ({
       id: t.id.trim(), name: String(t.name ?? '').slice(0, 120), owner: String(t.owner ?? '').trim().slice(0, 60),
-      desc: String(t.desc ?? '').slice(0, 1000), deps: [...new Set(t.deps.map((d) => String(d).trim()))], done: !!t.done }));
+      desc: String(t.desc ?? '').slice(0, 1000), deps: [...new Set(t.deps.map((d) => String(d).trim()))], done: !!t.done, diff: cleanDiff(t.diff) }));
     if (validate(tasks).errors.length) return null;
     return {
       id: typeof g.id === 'string' && /^[a-z0-9-]{3,48}$/.test(g.id) ? g.id : store.newId(),
@@ -1261,13 +1328,14 @@
         h('button', { class: 'primary', text: 'Criar', onclick: create })));
     for (const g of store.list()) {
       const done = g.tasks.filter((t) => t.done).length;
+      const pg = progressOf(g.tasks);
       tiles.append(h('div', { class: 'tile' },
         h('a', { class: 'tile-link', href: `#/g/${g.id}` },
           thumb(g),
           h('span', { class: 'tile-name', text: g.name }),
           h('span', { class: 'tile-meta' },
-            h('span', { class: 'bar' }, h('i', { style: `width:${g.tasks.length ? (done / g.tasks.length) * 100 : 0}%` })),
-            h('span', { text: `${done}/${g.tasks.length}` }))),
+            h('span', { class: 'bar' }, h('i', { style: `width:${pg.pct}%` })),
+            h('span', { text: `${done}/${g.tasks.length}`, title: `${pg.pct}% concluído` }))),
         h('button', { class: 'tile-act tile-exp', title: 'Exportar este grafo', 'aria-label': `Exportar ${g.name}`, text: '⤓', onclick: () => exportGraph(g) }),
         h('button', { class: 'tile-act tile-del', title: 'Excluir grafo', 'aria-label': `Excluir ${g.name}`, text: '✕', onclick: () => {
           if (!confirm(`Excluir o grafo "${g.name}"? Isso não pode ser desfeito.`)) return;
