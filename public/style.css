@@ -160,9 +160,7 @@ select option { color: #111; }
 dialog.summary { width: min(640px, 92vw); padding: 18px; color: var(--ink); background: #1b1850; border: 1px solid var(--edge); border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
 dialog.summary::backdrop { background: rgba(8, 6, 24, .6); }
 dialog.summary h2 { margin: 0 0 10px; font-size: 18px; letter-spacing: -.01em; }
-.dline { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 14px; }
-.dline input { margin-left: 6px; }
-.summary-text { width: 100%; min-height: 260px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; line-height: 1.5; }
+.summary-text { width: 100%; min-height: 220px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; line-height: 1.5; }
 .summary-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 
 /* Distribuição */

@@ -307,75 +307,18 @@
   }
 
   // Texto com as próximas tarefas: só as liberadas (todas as dependências concluídas) e ainda não concluídas.
-  // Com data de entrega definida, acrescenta o plano dos próximos 7 dias.
   function summaryText() {
     const st = statusOf(state.draft);
     const ready = state.draft.filter((x) => st.get(x.id) === 'ready');
     let out = 'Próximas tarefas\n\n' + (ready.length ? groupedLines(ready) : 'Nenhuma tarefa liberada.');
-    if (state.graph.deadline) out += '\n\n' + planText();
     return out;
   }
 
-  // ---------- data de entrega e plano dos próximos dias ----------
-  const DAY_MS = 864e5;
-  const midnight = (dt) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-  const parseDay = (str) => { const [y, m, d] = str.split('-').map(Number); return new Date(y, m - 1, d); };
-  const addDays = (dt, k) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + k);
-  const fmtDay = (dt) => `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}`;
-
-  function cleanDeadline(v) {
-    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
-    const dt = parseDay(v);
-    return fmtDay(dt) === `${v.slice(8)}/${v.slice(5, 7)}` ? v : undefined;
-  }
-  function saveDeadline(v) {
-    try { state.graph = store.put({ ...state.graph, deadline: cleanDeadline(v) }); } catch (e) { toast(e.message); }
-  }
-
-  // Plano para os próximos 7 dias. Escalona as tarefas pendentes (respeitando dependências, responsáveis já definidos
-  // e a dificuldade como duração) e estica esse cronograma até a data de entrega: assim o ritmo é o necessário para
-  // terminar no prazo. Entram no plano as tarefas que começam nos próximos 7 dias. Contam dias corridos.
-  function planText() {
-    const HORIZON = 7;
-    const dl = parseDay(state.graph.deadline);
-    const today = midnight(new Date());
-    const total = Math.round((dl - today) / DAY_MS) + 1; // dias disponíveis, contando hoje e o dia da entrega
-    const title = `Entrega do projeto: ${fmtDay(dl)}/${dl.getFullYear()}`;
-    if (total < 1) return `${title}\n\nA data de entrega já passou.`;
-    const pend = state.draft.filter((x) => !x.done);
-    if (!pend.length) return `${title}\n\nTodas as tarefas já estão concluídas.`;
-    if (validate(state.draft).errors.length) return `${title}\n\nCorrija os erros do painel de tarefas para gerar o plano.`;
-
-    const d = cleanDist(state.graph.dist);
-    const owners = [...new Set([...(d ? d.members : []), ...pend.map((x) => x.owner.trim()).filter(Boolean)])];
-    const fixed = new Map(pend.filter((x) => x.owner.trim()).map((x) => [x.id, x.owner.trim()]));
-    const r = distribute(state.draft, taskWeights(d), owners, fixed);
-    const k = total / r.makespan; // dias por unidade de dificuldade
-    const startDay = (x) => Math.floor(r.times.get(x.id).start * k + 1e-9);
-    const endDay = (x) => Math.max(startDay(x), Math.ceil(r.times.get(x.id).end * k - 1e-9) - 1);
-    const span = Math.min(HORIZON, total);
-    const list = pend.filter((x) => startDay(x) < span).sort((a, b) => startDay(a) - startDay(b));
-    const range = (x) => {
-      const a = startDay(x), b = endDay(x);
-      return a === b ? fmtDay(addDays(today, a)) : `${fmtDay(addDays(today, a))} a ${fmtDay(addDays(today, b))}`;
-    };
-    const head = `Plano para ${span === 1 ? 'hoje' : `os próximos ${span} dias`} (${fmtDay(today)}${span > 1 ? ` a ${fmtDay(addDays(today, span - 1))}` : ''})`;
-    const noWeights = !d || (d.mode === 'number' && !pend.some((x) => d.diff[x.id]));
-    return `${title} (${total} dia${total > 1 ? 's' : ''} contando hoje)\n\n${head}\n\n${groupedLines(list, (x) => ` | ${range(x)}`)}`
-      + (noWeights ? '\n\nObs.: a dificuldade das tarefas não foi informada (use "Distribuir"); todas foram consideradas com o mesmo peso.' : '');
-  }
-
   function showSummary() {
-    const ta = h('textarea', { class: 'summary-text', readonly: true, rows: 14, 'aria-label': 'Resumo das próximas tarefas' });
+    const ta = h('textarea', { class: 'summary-text', readonly: true, rows: 10, 'aria-label': 'Resumo das próximas tarefas' });
     ta.value = summaryText();
-    const setDeadline = (v) => { saveDeadline(v); ta.value = summaryText(); };
-    const dateInput = h('input', { type: 'date', value: state.graph.deadline || '', 'aria-label': 'Data de entrega do projeto',
-      onchange: (e) => setDeadline(e.target.value) });
     const dlg = h('dialog', { class: 'summary' },
       h('h2', { text: 'Resumo' }),
-      h('div', { class: 'dline' },
-        h('label', {}, 'Data de entrega do projeto ', dateInput),
-        h('button', { class: 'ghost', text: 'Limpar', onclick: () => { dateInput.value = ''; setDeadline(''); } })),
       ta,
       h('div', { class: 'summary-actions' },
         h('button', { class: 'primary', text: 'Copiar', onclick: async () => {
@@ -442,18 +385,14 @@
   // ou seja, o equilíbrio de carga pesa mais, e a duração total (que cresce quando alguém fica parado esperando
   // outra pessoa) desempata. Começa de uma divisão gulosa (prioridade ao caminho mais longo até o fim) e melhora
   // trocando/movendo tarefas, com algumas partidas aleatórias determinísticas.
-  // `fixed` (id → pessoa) mantém tarefas com responsável definido; sem `members`, cada tarefa é independente
-  // (paralelismo ilimitado) e só os horários (`times`) são calculados.
-  function distribute(tasks, weight, members, fixed = new Map()) {
+  function distribute(tasks, weight, members) {
     const pend = tasks.filter((x) => !x.done);
-    const n = pend.length;
-    const P = members.length || n;
+    const n = pend.length, P = members.length;
     const idx = new Map(pend.map((x, i) => [x.id, i]));
     const w = pend.map((x) => weight.get(x.id) || 1);
     const deps = pend.map((x) => x.deps.filter((d) => idx.has(d)).map((d) => idx.get(d)));
     const succ = pend.map(() => []);
     deps.forEach((ds, i) => ds.forEach((d) => succ[d].push(i)));
-    const fx = pend.map((x) => (fixed.has(x.id) ? members.indexOf(fixed.get(x.id)) : -1));
 
     const bl = new Array(n).fill(-1); // caminho mais longo (em dificuldade) daqui até o fim
     const blOf = (i) => (bl[i] >= 0 ? bl[i] : (bl[i] = w[i] + succ[i].reduce((m, j) => Math.max(m, blOf(j)), 0)));
@@ -475,14 +414,12 @@
     }
 
     const evaluate = (asg) => {
-      const free = new Array(P).fill(0), load = new Array(P).fill(0), cnt = new Array(P).fill(0);
-      const fin = new Array(n).fill(0), st = new Array(n).fill(0);
+      const free = new Array(P).fill(0), load = new Array(P).fill(0), cnt = new Array(P).fill(0), fin = new Array(n).fill(0);
       let makespan = 0;
       for (const i of order) {
         const p = asg[i];
         let start = free[p];
         for (const d of deps[i]) if (fin[d] > start) start = fin[d];
-        st[i] = start;
         fin[i] = start + w[i];
         free[p] = fin[i];
         load[p] += w[i]; cnt[p]++;
@@ -490,22 +427,14 @@
       }
       const imb = Math.max(...load) - Math.min(...load);
       const cimb = Math.max(...cnt) - Math.min(...cnt);
-      return { cost: 3 * imb + makespan + 0.01 * cimb, makespan, load, st, fin };
+      return { cost: 3 * imb + makespan + 0.01 * cimb, makespan, load };
     };
-    const total = w.reduce((a, b) => a + b, 0);
-    const times = (ev) => new Map(pend.map((x, i) => [x.id, { start: ev.st[i], end: ev.fin[i] }]));
-
-    if (!members.length) {
-      const ev = evaluate(pend.map((_, i) => i));
-      return { owners: new Map(), people: [], makespan: ev.makespan, idle: 0, times: times(ev) };
-    }
 
     const improve = (asg, deadline) => {
       let cur = evaluate(asg).cost;
       for (let pass = 0; pass < 100 && performance.now() < deadline; pass++) {
         let better = false;
         for (let i = 0; i < n; i++) {
-          if (fx[i] >= 0) continue;
           for (let p = 0; p < P; p++) {
             if (p === asg[i]) continue;
             const old = asg[i];
@@ -516,7 +445,7 @@
         }
         for (let i = 0; i < n; i++) {
           for (let j = i + 1; j < n; j++) {
-            if (asg[i] === asg[j] || fx[i] >= 0 || fx[j] >= 0) continue;
+            if (asg[i] === asg[j]) continue;
             [asg[i], asg[j]] = [asg[j], asg[i]];
             const c = evaluate(asg).cost;
             if (c < cur - 1e-9) { cur = c; better = true; } else [asg[i], asg[j]] = [asg[j], asg[i]];
@@ -534,12 +463,9 @@
       for (const i of order) {
         const ready = deps[i].reduce((m, d) => Math.max(m, fin[d]), 0);
         let best = 0;
-        if (fx[i] >= 0) best = fx[i];
-        else {
-          for (let p = 1; p < P; p++) {
-            const dl = load[p] - load[best];
-            if (dl < -1e-9 || (Math.abs(dl) <= 1e-9 && Math.max(free[p], ready) < Math.max(free[best], ready))) best = p;
-          }
+        for (let p = 1; p < P; p++) {
+          const dl = load[p] - load[best];
+          if (dl < -1e-9 || (Math.abs(dl) <= 1e-9 && Math.max(free[p], ready) < Math.max(free[best], ready))) best = p;
         }
         greedy[i] = best;
         fin[i] = Math.max(free[best], ready) + w[i];
@@ -555,18 +481,17 @@
       for (let k = shuffled.length - 1; k > 0; k--) { const j = Math.floor(rand() * (k + 1)); [shuffled[k], shuffled[j]] = [shuffled[j], shuffled[k]]; }
       const asg = new Array(n).fill(0);
       shuffled.forEach((i, k) => { asg[i] = k % P; });
-      fx.forEach((p, i) => { if (p >= 0) asg[i] = p; });
       const c = improve(asg, deadline);
       if (c < bestCost - 1e-9) { best = asg; bestCost = c; }
     }
 
     const ev = evaluate(best);
+    const total = w.reduce((a, b) => a + b, 0);
     return {
       owners: new Map(pend.map((x, i) => [x.id, members[best[i]]])),
       people: members.map((name, p) => ({ name, load: ev.load[p], ids: order.filter((i) => best[i] === p).map((i) => pend[i].id) })),
       makespan: ev.makespan,
       idle: ev.makespan ? Math.max(0, 1 - total / (ev.makespan * P)) : 0,
-      times: times(ev),
     };
   }
 
@@ -1021,7 +946,7 @@
         let n = 0;
         for (const g of graphs) {
           if (store.get(g.id) && !overwrite) continue;
-          store.put({ id: g.id, name: g.name.slice(0, 80), dist: cleanDist(g.dist), deadline: cleanDeadline(g.deadline), tasks: g.tasks.map((t) => ({
+          store.put({ id: g.id, name: g.name.slice(0, 80), dist: cleanDist(g.dist), tasks: g.tasks.map((t) => ({
             id: t.id, name: String(t.name ?? ''), owner: String(t.owner ?? ''), desc: String(t.desc ?? '').slice(0, 1000), deps: t.deps.map(String), done: !!t.done })) });
           n++;
         }
