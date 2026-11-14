@@ -102,6 +102,14 @@ select option { color: #111; }
 .edge { fill: none; stroke: rgba(255, 255, 255, .5); stroke-width: 2; }
 .edge.on { stroke: var(--green); stroke-width: 3.6; }
 .edge.dim { opacity: .15; }
+/* setas que pulam colunas: mais discretas, para o fluxo principal se destacar */
+.edge.long { stroke: rgba(255, 255, 255, .38); stroke-width: 1.7; }
+.edge.long.on { stroke: var(--green); stroke-width: 3; opacity: .85; }
+.edge { transition: opacity .12s; }
+/* ao apontar ou focar uma tarefa, só as setas dela ficam em evidência */
+.hl .edge:not(.hot) { opacity: .1; }
+.hl .edge.hot { stroke: #fff; stroke-width: 3.2; opacity: 1; }
+.hl .edge.hot.on { stroke: var(--green); stroke-width: 4.6; }
 .arrow-gray { fill: rgba(255, 255, 255, .7); }
 .arrow-green { fill: var(--green); }
 
@@ -193,6 +201,13 @@ dialog.dist { width: min(760px, 94vw); }
 .dres .load { color: var(--muted); font-size: 13px; align-self: center; }
 .dres .ids { grid-column: 1 / -1; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
 
+/* Trocar nome de pessoa */
+dialog.summary .rfield { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 8px; margin: 8px 0; }
+dialog.summary .rfield span { color: var(--muted); font-weight: 700; font-size: 13px; }
+dialog.summary .opt { display: flex; align-items: center; gap: 8px; margin: 8px 0; cursor: pointer; font-size: 14px; }
+dialog.summary .opt input { accent-color: var(--blue); width: 16px; height: 16px; padding: 0; }
+dialog.summary select option { color: #111; }
+
 /* Boas-vindas */
 .welcome { flex: 1; display: grid; place-items: center; min-height: 100vh; padding: 24px; text-align: center; }
 .welcome-inner { display: flex; flex-direction: column; align-items: center; gap: 14px; }
@@ -218,9 +233,11 @@ dialog.dist { width: min(760px, 94vw); }
 .tile-name { display: block; padding: 0 14px; font-weight: 800; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile-meta { display: flex; align-items: center; gap: 8px; padding: 6px 14px 0; font-size: 12.5px; color: var(--muted); font-weight: 700; }
 .tile-meta .bar { flex: 1; width: auto; }
-.tile-del { position: absolute; top: 8px; right: 8px; padding: 3px 8px; background: rgba(10, 8, 30, .6); opacity: 0; }
-.tile:hover .tile-del, .tile:focus-within .tile-del { opacity: 1; }
-@media (hover: none) { .tile-del { opacity: 1; } }
+.tile-act { position: absolute; top: 8px; padding: 3px 8px; background: rgba(10, 8, 30, .6); opacity: 0; }
+.tile-del { right: 8px; }
+.tile-exp { right: 44px; }
+.tile:hover .tile-act, .tile:focus-within .tile-act { opacity: 1; }
+@media (hover: none) { .tile-act { opacity: 1; } }
 .tile.new { display: flex; flex-direction: column; gap: 10px; justify-content: center; padding: 16px; background: transparent; border: 2px dashed rgba(255, 255, 255, .4); min-height: 190px; }
 .tile.new strong { font-size: 17px; letter-spacing: -.01em; }
 .backup { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 34px; color: var(--muted); font-size: 13.5px; }
@@ -239,4 +256,4 @@ dialog.dist { width: min(760px, 94vw); }
   .home h1 { font-size: 36px; }
   .welcome h1 { font-size: 40px; }
 }
-@media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+@media (prefers-reduced-motion: reduce) { #toast, .edge { transition: none; } }

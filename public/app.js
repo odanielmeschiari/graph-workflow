@@ -4,6 +4,7 @@
 
   // ---------- constantes de layout ----------
   const NW = 210, NH = 76, GX = 96, GY = 22, PAD = 24;
+  const LH = 6, LG = 10; // "pista" reservada para setas que pulam colunas: altura e espaço entre pistas
   const SVGNS = 'http://www.w3.org/2000/svg';
 
   // ---------- helpers de DOM ----------
@@ -56,10 +57,8 @@
       return this.ids().map((id) => this.get(id)).filter(Boolean)
         .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     },
-    create(name) {
-      const id = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      return this.put({ id, name, tasks: [] });
-    },
+    newId() { return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); },
+    create(name) { return this.put({ id: this.newId(), name, tasks: [] }); },
     remove(id) { localStorage.removeItem(PREFIX + id); },
   };
 
@@ -94,6 +93,9 @@
   }
 
   // Layout horizontal em camadas: coluna = maior caminho até a tarefa.
+  // Uma seta que pula colunas (a tarefa depende de outra vários níveis atrás) ganha uma "pista" reservada em
+  // cada coluna intermediária, para contornar os nós em vez de passar por cima deles. Setas que saem da mesma
+  // tarefa compartilham as pistas e só se separam perto do destino.
   function layout(tasks) {
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const depth = new Map();
@@ -113,36 +115,83 @@
     const ncol = tasks.length ? Math.max(...depth.values()) + 1 : 0;
     const cols = Array.from({ length: ncol }, () => []);
     tasks.forEach((t) => cols[depth.get(t.id)].push(t.id));
-    const dependents = new Map(tasks.map((t) => [t.id, []]));
-    tasks.forEach((t) => t.deps.forEach((d) => dependents.has(d) && dependents.get(d).push(t.id)));
 
-    const rows = Math.max(1, ...cols.map((c) => c.length));
-    const colH = (n) => n * NH + Math.max(0, n - 1) * GY;
-    const totalH = colH(rows);
-    const y = new Map();
+    // grafo ampliado: tarefas + pistas; `edges` guarda, para cada dependência, as pistas por onde ela passa
+    const colOf = new Map(depth);
+    const preds = new Map(tasks.map((t) => [t.id, []]));
+    const succs = new Map(tasks.map((t) => [t.id, []]));
+    const linked = new Set();
+    const link = (a, b) => {
+      const k = a + '\0>' + b;
+      if (linked.has(k)) return;
+      linked.add(k);
+      succs.get(a).push(b);
+      preds.get(b).push(a);
+    };
+    const laneKey = (src, c) => '\0' + src + '\0' + c;
+    const edges = [];
+    for (const t of tasks) {
+      for (const d of new Set(t.deps)) {
+        if (d === t.id || !byId.has(d)) continue;
+        const c0 = depth.get(d), c1 = depth.get(t.id);
+        const lanes = [];
+        for (let c = c0 + 1; c < c1; c++) {
+          const k = laneKey(d, c);
+          if (!colOf.has(k)) { colOf.set(k, c); preds.set(k, []); succs.set(k, []); cols[c].push(k); }
+          lanes.push(k);
+        }
+        const chain = [d, ...lanes, t.id];
+        for (let i = 0; i + 1 < chain.length; i++) link(chain[i], chain[i + 1]);
+        edges.push({ from: d, to: t.id, lanes });
+      }
+    }
+
+    const hOf = (k) => (k.charCodeAt(0) === 0 ? LH : NH);
+    const gapOf = (a, b) => (hOf(a) === LH && hOf(b) === LH ? LG : GY);
+    const colH = (col) => col.reduce((acc, k, i) => acc + hOf(k) + (i ? gapOf(col[i - 1], k) : 0), 0);
+    const totalH = Math.max(NH, ...cols.map(colH));
+    const y = new Map(); // topo de cada item
     const place = () => cols.forEach((c) => {
-      const off = (totalH - colH(c.length)) / 2;
-      c.forEach((id, i) => y.set(id, off + i * (NH + GY)));
+      let at = (totalH - colH(c)) / 2;
+      c.forEach((k, i) => { if (i) at += gapOf(c[i - 1], k); y.set(k, at); at += hOf(k); });
     });
     place();
+    const mid = (k) => y.get(k) + hOf(k) / 2;
     const sortBy = (col, neighbours) => {
-      const key = new Map(col.map((id) => {
-        const ys = neighbours(id).filter((n) => y.has(n)).map((n) => y.get(n));
-        return [id, ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : y.get(id)];
+      const key = new Map(col.map((k) => {
+        const ys = neighbours(k).filter((n) => y.has(n)).map(mid);
+        return [k, ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : mid(k)];
       }));
       col.sort((a, b) => key.get(a) - key.get(b));
     };
-    for (let it = 0; it < 4; it++) {
-      for (let c = 1; c < ncol; c++) { sortBy(cols[c], (id) => byId.get(id).deps); place(); }
-      for (let c = ncol - 2; c >= 0; c--) { sortBy(cols[c], (id) => dependents.get(id)); place(); }
+    for (let it = 0; it < 6; it++) {
+      for (let c = 1; c < ncol; c++) { sortBy(cols[c], (k) => preds.get(k)); place(); }
+      for (let c = ncol - 2; c >= 0; c--) { sortBy(cols[c], (k) => succs.get(k)); place(); }
     }
+
+    const colX = (c) => PAD + c * (NW + GX);
     const pos = new Map();
-    cols.forEach((c, ci) => c.forEach((id) => pos.set(id, { x: PAD + ci * (NW + GX), y: PAD + y.get(id) })));
+    for (const t of tasks) pos.set(t.id, { x: colX(depth.get(t.id)), y: PAD + y.get(t.id) });
+    const lane = (k) => ({ x: colX(colOf.get(k)), y: PAD + mid(k) });
     return {
       pos,
+      edges: edges.map((e) => ({ from: e.from, to: e.to, lanes: e.lanes.map(lane) })),
       w: ncol ? PAD * 2 + ncol * NW + (ncol - 1) * GX : 0,
       h: PAD * 2 + totalH,
     };
+  }
+
+  // Caminho de uma seta: curvas suaves nos vãos entre colunas e trecho reto atravessando cada pista.
+  function edgePath(x1, y1, lanes, x2, y2) {
+    let d = `M${x1} ${y1}`, cx = x1, cy = y1;
+    const curve = (x, y) => {
+      const dx = Math.max(40, Math.abs(x - cx) / 2);
+      d += ` C${cx + dx} ${cy}, ${x - dx} ${y}, ${x} ${y}`;
+      cx = x; cy = y;
+    };
+    for (const l of lanes) { curve(l.x, l.y); d += ` L${l.x + NW} ${l.y}`; cx = l.x + NW; }
+    curve(x2, y2);
+    return d;
   }
 
   function validate(draft) {
@@ -193,7 +242,7 @@
       box.append(h('div', { class: 'none', text: 'Este grafo está vazio. Adicione tarefas no painel: o grafo aparece aqui conforme você digita.' }));
       return;
     }
-    const { pos, w, h: ht } = layout(tasks);
+    const { pos, edges: routes, w, h: ht } = layout(tasks);
     const st = statusOf(tasks);
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const svg = s('svg', {
@@ -210,23 +259,25 @@
     svg.append(s('defs', {}, marker('arr-gray', 'arrow-gray'), marker('arr-green', 'arrow-green')));
 
     const dimmed = (t) => state.owner && t.owner !== state.owner;
-    const edges = [];
-    for (const t of tasks) for (const d of t.deps) {
-      if (!byId.has(d) || !pos.has(d)) continue;
-      edges.push({ from: byId.get(d), to: t, on: !!byId.get(d).done });
-    }
+    const edges = routes.map((r) => ({ from: byId.get(r.from), to: byId.get(r.to), lanes: r.lanes, on: !!byId.get(r.from).done }));
     edges.sort((a, b) => a.on - b.on); // verdes por cima
     const edgeLayer = s('g', {});
+    const edgeEls = [];
     for (const e of edges) {
       const a = pos.get(e.from.id), b = pos.get(e.to.id);
-      const x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x - 3, y2 = b.y + NH / 2;
-      const dx = Math.max(40, Math.abs(x2 - x1) / 2);
-      edgeLayer.append(s('path', {
-        d: `M${x1} ${y1} C${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
-        class: 'edge' + (e.on ? ' on' : '') + (dimmed(e.from) && dimmed(e.to) ? ' dim' : ''),
+      const el = s('path', {
+        d: edgePath(a.x + NW, a.y + NH / 2, e.lanes, b.x - 3, b.y + NH / 2),
+        class: 'edge' + (e.lanes.length ? ' long' : '') + (e.on ? ' on' : '') + (dimmed(e.from) && dimmed(e.to) ? ' dim' : ''),
         'marker-end': `url(#${e.on ? 'arr-green' : 'arr-gray'})`,
-      }));
+      });
+      edgeEls.push([el, e]);
+      edgeLayer.append(el);
     }
+    // ao apontar/focar uma tarefa, realça as setas que entram e saem dela (útil para seguir dependências longas)
+    const light = (id) => {
+      svg.classList.toggle('hl', !!id);
+      for (const [el, e] of edgeEls) el.classList.toggle('hot', !!id && (e.from.id === id || e.to.id === id));
+    };
     svg.append(edgeLayer);
 
     for (const t of tasks) {
@@ -250,6 +301,10 @@
       s('text', { class: 't-name', x: 16, y: 48, text: trunc(t.name || '(sem nome)', 27) }),
       t.owner ? s('text', { class: 't-owner', x: 16, y: 66, text: trunc(t.owner, 30) }) : null);
       g.addEventListener('click', () => toggleDone(t));
+      g.addEventListener('pointerenter', () => light(t.id));
+      g.addEventListener('pointerleave', () => light(null));
+      g.addEventListener('focus', () => light(t.id));
+      g.addEventListener('blur', () => light(null));
       g.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleDone(t); }
       });
@@ -680,6 +735,136 @@
     dlg.showModal();
   }
 
+  // ---------- trocar o nome de uma pessoa ----------
+  const escRe = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Troca `from` por `to` nos responsáveis das tarefas e na lista de integrantes da distribuição.
+  // Com `alsoText`, troca também o nome inteiro (palavra exata) nos nomes e descrições das tarefas.
+  // Não altera os objetos recebidos. `n` = tarefas alteradas; `members` = nova lista (ou null se igual).
+  function renamePerson(tasks, members, from, to, alsoText) {
+    const re = alsoText ? new RegExp(`(?<![\\p{L}\\p{N}_])${escRe(from)}(?![\\p{L}\\p{N}_])`, 'gu') : null;
+    const sub = (v) => (re && v ? v.replace(re, () => to) : v);
+    let n = 0;
+    const out = tasks.map((t) => {
+      const r = { ...t };
+      if (String(t.owner || '').trim() === from) r.owner = to;
+      r.name = sub(t.name); r.desc = sub(t.desc);
+      if (r.owner !== t.owner || r.name !== t.name || r.desc !== t.desc) n++;
+      return r;
+    });
+    let mem = null;
+    if (members && members.some((m) => m.trim() === from)) {
+      mem = members.map((m) => (m.trim() === from ? to : m)).filter((m, i, arr) => arr.indexOf(m) === i);
+    }
+    return { tasks: out, members: mem, n };
+  }
+
+  // Pessoas (responsáveis e integrantes da distribuição) de uma lista de grafos, com a contagem de tarefas.
+  function peopleOf(graphs) {
+    const out = new Map();
+    for (const g of graphs) {
+      for (const t of g.tasks) { const o = String(t.owner || '').trim(); if (o) out.set(o, (out.get(o) || 0) + 1); }
+      for (const m of (g.dist && g.dist.members) || []) if (!out.has(m)) out.set(m, 0);
+    }
+    return out;
+  }
+
+  function showRenamePerson() {
+    const inGraph = !!state.graph;
+    // o grafo aberto vale pelo rascunho do painel (pode estar mais novo que o salvo)
+    const current = () => ({ ...state.graph, tasks: state.draft });
+    const others = () => store.list().filter((g) => !inGraph || g.id !== state.graph.id);
+    const scopeGraphs = (all) => (inGraph ? [current(), ...(all ? others() : [])] : others());
+
+    const sel = h('select', { 'aria-label': 'Pessoa a substituir' });
+    const input = h('input', { placeholder: 'Novo nome', 'aria-label': 'Novo nome', maxlength: 60 });
+    const textOpt = h('input', { type: 'checkbox' });
+    const allOpt = h('input', { type: 'checkbox', checked: !inGraph, disabled: !inGraph });
+    const info = h('p', { class: 'hint', 'aria-live': 'polite' });
+    const go = h('button', { class: 'primary', text: 'Trocar', disabled: true });
+
+    const fill = () => {
+      const prev = sel.value;
+      const people = peopleOf(scopeGraphs(allOpt.checked));
+      sel.replaceChildren(h('option', { value: '', text: people.size ? 'Escolha a pessoa…' : 'Nenhuma pessoa cadastrada' }),
+        ...[...people].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR')).map(([name, k]) =>
+          h('option', { value: name, text: `${name} (${k} tarefa${k === 1 ? '' : 's'})` })));
+      sel.value = people.has(prev) ? prev : '';
+      return people;
+    };
+    const plan = () => {
+      const from = sel.value, to = input.value.trim().slice(0, 60), gs = scopeGraphs(allOpt.checked);
+      let tasksN = 0, graphsN = 0;
+      if (from && to && to !== from) {
+        for (const g of gs) {
+          const r = renamePerson(g.tasks, g.dist && g.dist.members, from, to, textOpt.checked);
+          if (r.n || r.members) graphsN++;
+          tasksN += r.n;
+        }
+      }
+      return { from, to, gs, tasksN, graphsN };
+    };
+    const update = () => {
+      const people = peopleOf(scopeGraphs(allOpt.checked));
+      const { from, to, tasksN, graphsN } = plan();
+      go.disabled = !from || !to || to === from;
+      const merge = from && to && to !== from && people.has(to);
+      info.textContent = !from || !to ? 'Escolha quem será substituído e digite o novo nome.'
+        : to === from ? 'O novo nome é igual ao atual.'
+        : `Vai alterar ${tasksN} tarefa${tasksN === 1 ? '' : 's'} em ${graphsN} grafo${graphsN === 1 ? '' : 's'}.` +
+          (merge ? ` "${to}" já existe: as tarefas das duas pessoas ficarão juntas.` : '');
+    };
+    sel.addEventListener('change', update);
+    input.addEventListener('input', update);
+    textOpt.addEventListener('change', update);
+    allOpt.addEventListener('change', () => { fill(); update(); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !go.disabled) { e.preventDefault(); go.click(); } });
+
+    go.addEventListener('click', () => {
+      const { from, to, gs, tasksN } = plan();
+      if (!from || !to || to === from) return;
+      const failed = [];
+      for (const g of gs) {
+        const r = renamePerson(g.tasks, g.dist && g.dist.members, from, to, textOpt.checked);
+        if (!r.n && !r.members) continue;
+        const dist = g.dist && r.members ? { ...g.dist, members: r.members } : g.dist;
+        if (inGraph && g.id === state.graph.id) {
+          state.draft = r.tasks; // rascunho do painel; o salvamento normal grava (ou avisa dos erros)
+          state.graph = { ...state.graph, dist };
+        } else {
+          try { store.put({ ...g, tasks: r.tasks, dist }); } catch { failed.push(g.name); }
+        }
+      }
+      if (inGraph) {
+        if (state.owner === from) state.owner = to;
+        renderRows();
+        redraw();
+        persist();
+      }
+      dlg.close();
+      if (!inGraph) renderHome();
+      toast(failed.length ? `Não foi possível salvar: ${failed.join(', ')}.` : `"${from}" trocado por "${to}" em ${tasksN} tarefa${tasksN === 1 ? '' : 's'}.`);
+    });
+
+    const dlg = h('dialog', { class: 'summary' },
+      h('h2', { text: 'Trocar nome de uma pessoa' }),
+      h('p', { class: 'hint', text: 'Substitui o nome nos responsáveis das tarefas e na lista de integrantes da distribuição. Para juntar duas pessoas, use o nome de quem já existe.' }),
+      h('label', { class: 'rfield' }, h('span', { text: 'Trocar' }), sel),
+      h('label', { class: 'rfield' }, h('span', { text: 'Por' }), input),
+      inGraph ? h('label', { class: 'opt' }, allOpt, 'Aplicar em todos os grafos (não só neste)') : null,
+      h('label', { class: 'opt' }, textOpt, 'Trocar também nos nomes e descrições das tarefas (palavra exata)'),
+      info,
+      h('div', { class: 'summary-actions' },
+        h('button', { text: 'Fechar', onclick: () => dlg.close() }), go));
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+    dlg.addEventListener('close', () => dlg.remove());
+    fill();
+    update();
+    document.body.append(dlg);
+    dlg.showModal();
+    sel.focus();
+  }
+
   // ---------- ações ----------
   function refreshSaveState() {
     if (!refs.saveState) return;
@@ -904,6 +1089,8 @@
       h('button', { 'aria-pressed': String(showPanel), text: 'Tarefas', title: 'Mostrar ou ocultar o painel de tarefas', onclick: () => setPanel(!showPanel) }),
       h('button', { text: 'Resumo', title: 'Gerar o resumo das próximas tarefas', onclick: showSummary }),
       h('button', { text: 'Distribuir', title: 'Distribuir as tarefas entre a equipe automaticamente', onclick: showDistribute }),
+      h('button', { text: 'Trocar nome', title: 'Trocar o nome de uma pessoa em todas as tarefas', onclick: showRenamePerson }),
+      h('button', { text: 'Exportar', title: 'Baixar este grafo em um arquivo (para enviar a alguém ou guardar)', onclick: exportCurrent }),
       h('span', { class: 'sep' }),
       h('button', { text: '−', title: 'Diminuir', 'aria-label': 'Diminuir', onclick: () => setZoom(state.zoom - 0.1) }),
       h('button', { text: '+', title: 'Aumentar', 'aria-label': 'Aumentar', onclick: () => setZoom(state.zoom + 0.1) }),
@@ -918,12 +1105,16 @@
     redraw();
   }
 
-  // ---------- backup (exportar / importar) ----------
-  function exportAll() {
-    const data = { app: 'grafo-tarefas', version: 1, exportedAt: new Date().toISOString(), graphs: store.list() };
+  // ---------- exportar / importar ----------
+  // Arquivo: { app, version, kind: 'graph' | 'backup', graphs: [...] }. Um grafo avulso usa o mesmo formato do
+  // backup completo (com um único item em `graphs`), então os dois tipos de arquivo servem para importar.
+  const slug = (str) => (str || 'grafo').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'grafo';
+
+  function download(filename, data) {
     const a = h('a', {
       href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })),
-      download: `grafos-tarefas-${new Date().toISOString().slice(0, 10)}.json`,
+      download: filename,
     });
     document.body.append(a);
     a.click();
@@ -931,28 +1122,86 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
-  function importAll(file) {
+  function exportAll() {
+    const graphs = store.list();
+    if (!graphs.length) { toast('Não há grafos para exportar.'); return; }
+    download(`grafos-tarefas-${new Date().toISOString().slice(0, 10)}.json`,
+      { app: 'grafo-tarefas', version: 1, kind: 'backup', exportedAt: new Date().toISOString(), graphs });
+  }
+
+  function exportGraph(g) {
+    download(`grafo-${slug(g.name)}-${new Date().toISOString().slice(0, 10)}.json`,
+      { app: 'grafo-tarefas', version: 1, kind: 'graph', exportedAt: new Date().toISOString(), graphs: [g] });
+    toast(`Grafo "${g.name}" exportado.`);
+  }
+
+  // Exporta o grafo aberto (grava antes o que ainda está pendente de salvar).
+  function exportCurrent() {
+    if (state.saveTimer) persist();
+    if (state.unsaved) toast('O painel tem erros: exportando a última versão salva do grafo.');
+    exportGraph(state.graph);
+  }
+
+  // Valida e limpa um grafo vindo de arquivo. Retorna null se não for aproveitável.
+  // Identificador fora do padrão ganha um novo, para o grafo continuar independente dos demais.
+  function sanitizeGraph(g) {
+    if (!g || typeof g !== 'object' || !Array.isArray(g.tasks)) return null;
+    if (!g.tasks.every((t) => t && typeof t.id === 'string' && Array.isArray(t.deps))) return null;
+    const tasks = g.tasks.map((t) => ({
+      id: t.id.trim(), name: String(t.name ?? '').slice(0, 120), owner: String(t.owner ?? '').trim().slice(0, 60),
+      desc: String(t.desc ?? '').slice(0, 1000), deps: [...new Set(t.deps.map((d) => String(d).trim()))], done: !!t.done }));
+    if (validate(tasks).errors.length) return null;
+    return {
+      id: typeof g.id === 'string' && /^[a-z0-9-]{3,48}$/.test(g.id) ? g.id : store.newId(),
+      name: (typeof g.name === 'string' && g.name.trim() ? g.name.trim() : 'Grafo importado').slice(0, 80),
+      dist: cleanDist(g.dist),
+      tasks,
+    };
+  }
+
+  // Pergunta o que fazer com grafos que já existem aqui. Resolve com 'replace', 'copy' ou null (cancelar).
+  function askConflict(names) {
+    return new Promise((resolve) => {
+      let answer = null;
+      const pick = (v) => () => { answer = v; dlg.close(); };
+      const dlg = h('dialog', { class: 'summary' },
+        h('h2', { text: names.length === 1 ? 'Este grafo já existe' : 'Estes grafos já existem' }),
+        h('p', { class: 'hint', text: `${names.map((n) => `"${n}"`).join(', ')} ${names.length === 1 ? 'já está' : 'já estão'} neste navegador. ` +
+          'Substituir apaga a versão atual; importar como cópia mantém as duas.' }),
+        h('div', { class: 'summary-actions' },
+          h('button', { text: 'Cancelar', onclick: pick(null) }),
+          h('button', { text: 'Importar como cópia', onclick: pick('copy') }),
+          h('button', { class: 'primary', text: 'Substituir', onclick: pick('replace') })));
+      dlg.addEventListener('close', () => { dlg.remove(); resolve(answer); });
+      document.body.append(dlg);
+      dlg.showModal();
+    });
+  }
+
+  function importFile(file) {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onerror = () => toast('Não foi possível ler o arquivo.');
+    reader.onload = async () => {
       try {
         const data = JSON.parse(reader.result);
-        const graphs = (Array.isArray(data.graphs) ? data.graphs : []).filter((g) =>
-          g && typeof g.id === 'string' && /^[a-z0-9-]{3,48}$/.test(g.id) && typeof g.name === 'string' && Array.isArray(g.tasks)
-          && g.tasks.every((t) => t && typeof t.id === 'string' && Array.isArray(t.deps))
-          && !validate(g.tasks.map((t) => ({ id: t.id, deps: t.deps }))).errors.length);
+        // aceita backup/grafo exportado ({ graphs: [...] }) e também um grafo solto ({ id, name, tasks })
+        const raw = Array.isArray(data && data.graphs) ? data.graphs : data && Array.isArray(data.tasks) ? [data] : [];
+        const graphs = raw.map(sanitizeGraph).filter(Boolean);
         if (!graphs.length) { toast('Esse arquivo não tem grafos válidos.'); return; }
+        const skipped = raw.length - graphs.length;
         const clash = graphs.filter((g) => store.get(g.id));
-        const overwrite = clash.length ? confirm(`${clash.length} grafo(s) já existem aqui. Sobrescrever com os do arquivo?`) : true;
-        let n = 0;
-        for (const g of graphs) {
-          if (store.get(g.id) && !overwrite) continue;
-          store.put({ id: g.id, name: g.name.slice(0, 80), dist: cleanDist(g.dist), tasks: g.tasks.map((t) => ({
-            id: t.id, name: String(t.name ?? ''), owner: String(t.owner ?? ''), desc: String(t.desc ?? '').slice(0, 1000), deps: t.deps.map(String), done: !!t.done })) });
-          n++;
+        let mode = 'replace';
+        if (clash.length) {
+          mode = await askConflict(clash.map((g) => g.name));
+          if (!mode) { toast('Importação cancelada.'); return; }
         }
-        toast(`${n} grafo(s) importado(s).`);
+        for (const g of graphs) {
+          if (mode === 'copy' && store.get(g.id)) store.put({ ...g, id: store.newId(), name: `${g.name} (cópia)`.slice(0, 80) });
+          else store.put(g);
+        }
+        toast(`${graphs.length} grafo(s) importado(s).` + (skipped ? ` ${skipped} ignorado(s) por erro no arquivo.` : ''));
         renderHome();
-      } catch (e) { toast(e.message || 'Arquivo inválido.'); }
+      } catch (e) { toast(e instanceof SyntaxError ? 'Arquivo inválido: não é um JSON.' : (e.message || 'Arquivo inválido.')); }
     };
     reader.readAsText(file);
   }
@@ -965,15 +1214,13 @@
     const [c1, c2] = GRADS[hash % GRADS.length];
     const box = h('div', { class: 'thumb', style: `background:linear-gradient(135deg,${c1},${c2})` });
     if (!g.tasks.length) return box;
-    const { pos, w, h: ht } = layout(g.tasks);
+    const { pos, edges, w, h: ht } = layout(g.tasks);
     const byId = new Map(g.tasks.map((t) => [t.id, t]));
     const svg = s('svg', { viewBox: `0 0 ${w} ${ht}`, preserveAspectRatio: 'xMidYMid meet', 'aria-hidden': 'true' });
-    for (const t of g.tasks) for (const d of t.deps) {
-      if (!pos.has(d)) continue;
-      const a = pos.get(d), b = pos.get(t.id);
-      const x1 = a.x + NW, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2, dx = (x2 - x1) / 2;
-      svg.append(s('path', { d: `M${x1} ${y1} C${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
-        class: 'm-edge' + (byId.get(d).done ? ' on' : '') }));
+    for (const e of edges) {
+      const a = pos.get(e.from), b = pos.get(e.to);
+      svg.append(s('path', { d: edgePath(a.x + NW, a.y + NH / 2, e.lanes, b.x, b.y + NH / 2),
+        class: 'm-edge' + (byId.get(e.from).done ? ' on' : '') }));
     }
     for (const t of g.tasks) {
       const p = pos.get(t.id);
@@ -1006,7 +1253,7 @@
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') create(); });
     const picker = h('input', { type: 'file', accept: 'application/json,.json', hidden: true,
-      onchange: (e) => { if (e.target.files[0]) importAll(e.target.files[0]); e.target.value = ''; } });
+      onchange: (e) => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; } });
     const tiles = h('div', { class: 'tiles' },
       h('div', { class: 'tile new' },
         h('strong', { text: 'Novo grafo' }),
@@ -1021,7 +1268,8 @@
           h('span', { class: 'tile-meta' },
             h('span', { class: 'bar' }, h('i', { style: `width:${g.tasks.length ? (done / g.tasks.length) * 100 : 0}%` })),
             h('span', { text: `${done}/${g.tasks.length}` }))),
-        h('button', { class: 'tile-del', title: 'Excluir grafo', 'aria-label': `Excluir ${g.name}`, text: '✕', onclick: () => {
+        h('button', { class: 'tile-act tile-exp', title: 'Exportar este grafo', 'aria-label': `Exportar ${g.name}`, text: '⤓', onclick: () => exportGraph(g) }),
+        h('button', { class: 'tile-act tile-del', title: 'Excluir grafo', 'aria-label': `Excluir ${g.name}`, text: '✕', onclick: () => {
           if (!confirm(`Excluir o grafo "${g.name}"? Isso não pode ser desfeito.`)) return;
           store.remove(g.id);
           renderHome();
@@ -1033,8 +1281,9 @@
       tiles,
       h('div', { class: 'backup' },
         h('span', { text: 'Limpar os dados do site apaga os grafos.' }),
-        h('button', { text: 'Exportar backup', onclick: exportAll }),
-        h('button', { text: 'Importar backup', onclick: () => picker.click() }),
+        h('button', { text: 'Trocar nome de pessoa', title: 'Trocar o nome de uma pessoa em todos os grafos', onclick: showRenamePerson }),
+        h('button', { text: 'Exportar backup', title: 'Exporta todos os grafos em um arquivo', onclick: exportAll }),
+        h('button', { text: 'Importar', title: 'Importa um grafo exportado ou um backup completo', onclick: () => picker.click() }),
         picker)));
   }
 

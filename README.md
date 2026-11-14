@@ -32,6 +32,17 @@ os dados ficam no navegador (localStorage), sem servidor e sem internet.
    ninguém ocioso esperando outra pessoa. Veja a prévia e clique em **Aplicar**; os responsáveis
    continuam editáveis à mão. Tarefas já concluídas não são alteradas. Na ordenação, arraste as
    tarefas (ou use as setas) para reordenar.
+7. O botão **Trocar nome** na doca (e **Trocar nome de pessoa** na tela inicial) substitui o nome de
+   uma pessoa nos responsáveis das tarefas e na lista de integrantes da distribuição, por exemplo
+   todas as ocorrências de "Pessoa A" por "Pessoa B". Escolha a pessoa na lista, digite o novo nome e
+   veja a prévia de quantas tarefas serão alteradas. Se o novo nome já existir, as duas pessoas são
+   unificadas. Dentro de um grafo, a troca vale só para ele, a menos que você marque **Aplicar em
+   todos os grafos**; há também a opção de trocar o nome nos títulos e descrições das tarefas
+   (só a palavra exata: trocar "Ana" não mexe em "Mariana").
+8. Quando uma tarefa depende de outra vários níveis atrás, a seta contorna as tarefas do meio por uma
+   pista própria, em vez de passar por cima delas, e fica mais discreta que as setas do fluxo
+   principal. Aponte (ou foque com o teclado) uma tarefa para realçar só as setas que entram e saem
+   dela.
 
 ## Seus dados
 
@@ -40,4 +51,10 @@ Tudo é salvo automaticamente enquanto você edita ou marca tarefas. Se houver u
 depois de corrigido.
 Os grafos continuam lá quando você fecha e abre o navegador. Eles somem se você limpar os dados
 do site, usar janela anônima ou trocar de navegador/computador. Por isso, use
-**Exportar backup** na tela inicial de vez em quando e **Importar backup** para restaurar.
+**Exportar backup** na tela inicial de vez em quando (todos os grafos em um arquivo).
+
+Também dá para exportar **um grafo só**: pelo botão ⤓ do cartão na tela inicial ou pelo botão
+**Exportar** na doca, dentro do grafo. **Importar** na tela inicial aceita tanto o arquivo de um grafo
+quanto um backup completo. Se o grafo já existir neste navegador, você escolhe entre **Substituir**,
+**Importar como cópia** (mantém os dois) ou cancelar. Assim dá para enviar um grafo para outra pessoa
+sem mexer nos demais.
