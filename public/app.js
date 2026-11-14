@@ -290,13 +290,25 @@
     const tasks = state.draft;
     const st = statusOf(tasks);
     const one = (str) => (str || '').replace(/\s+/g, ' ').trim();
-    const lines = [];
-    for (const t of tasks.filter((x) => st.get(x.id) === 'ready')) {
-      lines.push('* ' + [t.id, one(t.owner) || 'sem responsável', one(t.name) || '(sem nome)'].join(' | '));
-      // descrição recuada logo abaixo da tarefa a que se refere
-      if (one(t.desc)) lines.push('    * ' + one(t.desc));
+    const ready = tasks.filter((x) => st.get(x.id) === 'ready');
+    if (!ready.length) return 'Próximas tarefas\n\nNenhuma tarefa liberada.';
+    // agrupa por responsável (ordem alfabética; quem não tem responsável vai por último)
+    const groups = new Map();
+    for (const t of ready) {
+      const who = one(t.owner);
+      if (!groups.has(who)) groups.set(who, []);
+      groups.get(who).push(t);
     }
-    return 'Próximas tarefas\n\n' + (lines.length ? lines.join('\n').trim() : 'Nenhuma tarefa liberada.');
+    const names = [...groups.keys()].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, 'pt-BR'));
+    const blocks = names.map((who) => [
+      who || 'Sem responsável',
+      ...groups.get(who).flatMap((t) => [
+        '* ' + [t.id, one(t.name) || '(sem nome)'].join(' | '),
+        // descrição recuada logo abaixo da tarefa a que se refere
+        ...(one(t.desc) ? ['    * ' + one(t.desc)] : []),
+      ]),
+    ].join('\n'));
+    return 'Próximas tarefas\n\n' + blocks.join('\n\n');
   }
 
   function showSummary() {
