@@ -284,6 +284,37 @@
     refreshProgress();
   }
 
+  // ---------- resumo ----------
+  // Texto com as próximas tarefas: só as liberadas (todas as dependências concluídas) e ainda não concluídas.
+  function summaryText() {
+    const tasks = state.draft;
+    const st = statusOf(tasks);
+    const one = (str) => (str || '').replace(/\s+/g, ' ').trim();
+    const lines = tasks.filter((t) => st.get(t.id) === 'ready').map((t) =>
+      '* ' + [t.id, one(t.owner) || 'sem responsável', one(t.name) || '(sem nome)', one(t.desc)].filter(Boolean).join(' | '));
+    return 'Próximas tarefas\n\n' + (lines.length ? lines.join('\n') : 'Nenhuma tarefa liberada.');
+  }
+
+  function showSummary() {
+    const ta = h('textarea', { class: 'summary-text', readonly: true, rows: 10, 'aria-label': 'Resumo das próximas tarefas' });
+    ta.value = summaryText();
+    const dlg = h('dialog', { class: 'summary' },
+      h('h2', { text: 'Resumo' }),
+      ta,
+      h('div', { class: 'summary-actions' },
+        h('button', { class: 'primary', text: 'Copiar', onclick: async () => {
+          try { await navigator.clipboard.writeText(ta.value); }
+          catch { ta.select(); document.execCommand('copy'); }
+          toast('Resumo copiado.');
+        } }),
+        h('button', { text: 'Fechar', onclick: () => dlg.close() })));
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); }); // clique no fundo fecha
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
+    ta.focus();
+  }
+
   // ---------- ações ----------
   function refreshSaveState() {
     if (!refs.saveState) return;
@@ -506,6 +537,7 @@
       h('a', { href: '#/grafos', text: 'Grafos', onclick: leave }),
       h('span', { class: 'sep' }),
       h('button', { 'aria-pressed': String(showPanel), text: 'Tarefas', title: 'Mostrar ou ocultar o painel de tarefas', onclick: () => setPanel(!showPanel) }),
+      h('button', { text: 'Resumo', title: 'Gerar o resumo das próximas tarefas', onclick: showSummary }),
       h('span', { class: 'sep' }),
       h('button', { text: '−', title: 'Diminuir', 'aria-label': 'Diminuir', onclick: () => setZoom(state.zoom - 0.1) }),
       h('button', { text: '+', title: 'Aumentar', 'aria-label': 'Aumentar', onclick: () => setZoom(state.zoom + 0.1) }),

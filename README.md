@@ -24,6 +24,8 @@ os dados ficam no navegador (localStorage), sem servidor e sem internet.
    liberada. Clique de novo para desfazer (só se nenhuma tarefa que dependa dela estiver concluída).
 4. O botão **Ocultar** no topo do painel (ou **Tarefas** na doca) esconde o painel para dar mais
    espaço ao grafo; o botão **Tarefas** da doca o mostra de novo.
+5. O botão **Resumo** na doca gera um texto com as próximas tarefas (só as liberadas e ainda não
+   concluídas), no formato `* T01 | Responsável | Nome | Descrição`, pronto para copiar.
 
 ## Seus dados
 
