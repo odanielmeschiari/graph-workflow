@@ -1,0 +1,51 @@
+{
+  "id": "aed-trabalho-e752",
+  "name": "AED trabalho",
+  "rev": 18,
+  "tasks": [
+    {
+      "id": "T01",
+      "name": "Árvore AVL",
+      "owner": "Daniel",
+      "deps": [],
+      "done": false
+    },
+    {
+      "id": "T02",
+      "name": "Árvore ABB",
+      "owner": "Enzo",
+      "deps": [],
+      "done": false
+    },
+    {
+      "id": "A01",
+      "name": "Teste",
+      "owner": "",
+      "deps": [
+        "T01",
+        "T02"
+      ],
+      "done": false
+    },
+    {
+      "id": "T03",
+      "name": "gjpjwpkf",
+      "owner": "",
+      "deps": [
+        "A01"
+      ],
+      "done": false
+    },
+    {
+      "id": "T04",
+      "name": "wofkjwokfo",
+      "owner": "",
+      "deps": [
+        "T01",
+        "T02"
+      ],
+      "done": false
+    }
+  ],
+  "updatedAt": "2026-11-14T15:43:29.335Z"
+}
