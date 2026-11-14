@@ -435,8 +435,8 @@
   }
 
   // ---------- páginas ----------
-  function logoMark() {
-    return s('svg', { viewBox: '0 0 24 24', width: 20, height: 20, 'aria-hidden': 'true' },
+  function logoMark(size = 20) {
+    return s('svg', { viewBox: '0 0 24 24', width: size, height: size, 'aria-hidden': 'true' },
       s('path', { d: 'M7.5 12C11 12 12 7 16.5 7M7.5 12C11 12 12 17 16.5 17', fill: 'none', stroke: '#fff', 'stroke-width': 1.7, 'stroke-linecap': 'round' }),
       s('rect', { x: 2, y: 9.2, width: 5.6, height: 5.6, rx: 1.8, fill: '#fff' }),
       s('rect', { x: 16, y: 4.2, width: 5.6, height: 5.6, rx: 1.8, fill: '#fff' }),
@@ -461,7 +461,7 @@
       onchange: (e) => { state.owner = e.target.value; drawGraph(); } });
 
     app.append(h('header', { class: 'topbar' },
-      h('a', { class: 'brand', href: '#/', title: 'Todos os grafos', onclick: leave }, h('span', { class: 'logo' }, logoMark()), h('span', { text: 'Grafos' })),
+      h('a', { class: 'brand', href: '#/grafos', title: 'Todos os grafos', onclick: leave }, h('span', { class: 'logo' }, logoMark()), h('span', { text: 'Grafos' })),
       refs.title,
       refs.progress,
       h('span', { class: 'spacer' }),
@@ -505,7 +505,7 @@
     // doca flutuante: painel e zoom
     const setZoom = (z) => { state.zoom = Math.min(2, Math.max(0.3, z)); drawGraph(); };
     app.append(h('nav', { class: 'dock', 'aria-label': 'Painel e zoom' },
-      h('a', { href: '#/', text: 'Grafos', onclick: leave }),
+      h('a', { href: '#/grafos', text: 'Grafos', onclick: leave }),
       h('span', { class: 'sep' }),
       h('button', { 'aria-pressed': String(showPanel), text: 'Tarefas', title: 'Mostrar ou ocultar o painel de tarefas', onclick: () => {
         state.panel = !showPanel;
@@ -591,6 +591,17 @@
     return box;
   }
 
+  function renderWelcome() {
+    state.graph = null;
+    const start = h('button', { class: 'start primary', text: 'Começar', onclick: () => { location.hash = '#/grafos'; } });
+    $('#app').replaceChildren(h('main', { class: 'welcome' },
+      h('div', { class: 'welcome-inner' },
+        h('span', { class: 'logo big' }, logoMark(36)),
+        h('h1', { text: 'Grafo de tarefas' }),
+        h('p', { text: 'Veja o que já foi feito e o que está liberado para começar.' }),
+        start)));
+  }
+
   function renderHome() {
     state.graph = null;
     const app = $('#app');
@@ -637,7 +648,7 @@
 
   function openGraph(id) {
     const g = store.get(id);
-    if (!g) { toast('Grafo não encontrado neste navegador.'); location.hash = '#/'; return; }
+    if (!g) { toast('Grafo não encontrado neste navegador.'); location.hash = '#/grafos'; return; }
     state.graph = g;
     state.draft = clone(g.tasks);
     state.name = g.name;
@@ -657,7 +668,9 @@
       return;
     }
     const m = location.hash.match(/^#\/g\/([a-z0-9-]+)$/);
-    if (m) openGraph(m[1]); else renderHome();
+    if (m) openGraph(m[1]);
+    else if (location.hash === '#/grafos') renderHome();
+    else renderWelcome();
   }
   window.addEventListener('hashchange', route);
   window.addEventListener('beforeunload', (e) => {
