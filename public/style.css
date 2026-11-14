@@ -1,4 +1,4 @@
-/* Visual: quadro em degradê roxo→rosa, listas translúcidas por etapa, nós arredondados e doca flutuante. */
+/* Visual: quadro em degradê roxo→rosa, nós arredondados e doca flutuante. */
 :root {
   --ink: #f6f3ff;
   --muted: rgba(246, 243, 255, .72);
@@ -76,10 +76,7 @@ select option { color: #111; }
 .canvas svg { display: block; }
 .canvas .none { color: var(--muted); padding: 40px 10px; font-size: 17px; }
 
-/* Etapas, nós e setas */
-.stage-box { fill: rgba(14, 9, 40, .4); stroke: rgba(255, 255, 255, .13); stroke-width: 1; }
-.stage-title { fill: #fff; font-size: 14px; font-weight: 800; letter-spacing: -.01em; }
-.stage-count { fill: rgba(255, 255, 255, .72); font-size: 13px; font-weight: 700; text-anchor: end; }
+/* Nós e setas */
 .node { cursor: default; }
 .node rect.box { stroke-width: 3; }
 .node text { pointer-events: none; }
@@ -118,14 +115,16 @@ select option { color: #111; }
   max-height: calc(100vh - 150px);
   backdrop-filter: blur(8px);
 }
-.editor .head { padding: 14px 14px 8px; }
-.editor .gname { width: 100%; font-size: 17px; font-weight: 800; letter-spacing: -.01em; background: transparent; border-color: transparent; padding-left: 6px; }
+.editor .head { padding: 14px 14px 8px; display: flex; align-items: center; gap: 8px; }
+.editor .head .hide { flex: none; padding: 5px 11px; font-size: 13px; }
+.editor .gname { flex: 1; width: 100%; font-size: 17px; font-weight: 800; letter-spacing: -.01em; background: transparent; border-color: transparent; padding-left: 6px; }
 .editor .gname:hover, .editor .gname:focus { background: rgba(255, 255, 255, .09); border-color: rgba(255, 255, 255, .22); }
 .rows { flex: 1; overflow: auto; padding: 4px 14px 10px; display: grid; gap: 10px; align-content: start; }
 .trow { display: grid; grid-template-columns: 74px 1fr 30px; gap: 6px; padding: 9px; background: rgba(8, 12, 34, .55); border: 1px solid rgba(255, 255, 255, .12); border-radius: 11px; }
 .trow.bad { border-color: var(--red); }
 .trow .full { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .trow input[name="id"] { font-weight: 800; }
+.trow textarea.desc { grid-column: 1 / -1; min-height: 0; resize: vertical; font-size: 13.5px; line-height: 1.4; background: rgba(255, 255, 255, .09); border: 1px solid rgba(255, 255, 255, .22); border-radius: 8px; padding: 7px 10px; }
 .trow button.rm { padding: 3px; line-height: 1; align-self: start; }
 .errors { margin: 0; padding: 0 16px 10px; list-style: none; color: var(--red); font-size: 13px; }
 .editor .foot { padding: 12px 14px; display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--edge); }

@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- constantes de layout ----------
-  const NW = 210, NH = 76, GX = 96, GY = 22, PAD = 24, HEAD = 44;
+  const NW = 210, NH = 76, GX = 96, GY = 22, PAD = 24;
   const SVGNS = 'http://www.w3.org/2000/svg';
 
   // ---------- helpers de DOM ----------
@@ -76,7 +76,7 @@
   };
   const refs = {};
 
-  const clone = (tasks) => tasks.map((t) => ({ ...t, deps: [...t.deps] }));
+  const clone = (tasks) => tasks.map((t) => ({ ...t, desc: t.desc || '', deps: [...t.deps] }));
   const viewTasks = () => state.draft;
   const PANEL_KEY = 'grafo-tarefas:panel';
 
@@ -137,12 +137,11 @@
       for (let c = ncol - 2; c >= 0; c--) { sortBy(cols[c], (id) => dependents.get(id)); place(); }
     }
     const pos = new Map();
-    cols.forEach((c, ci) => c.forEach((id) => pos.set(id, { x: PAD + ci * (NW + GX), y: PAD + HEAD + y.get(id) })));
+    cols.forEach((c, ci) => c.forEach((id) => pos.set(id, { x: PAD + ci * (NW + GX), y: PAD + y.get(id) })));
     return {
       pos,
       w: ncol ? PAD * 2 + ncol * NW + (ncol - 1) * GX : 0,
-      h: PAD * 2 + HEAD + totalH,
-      cols,
+      h: PAD * 2 + totalH,
     };
   }
 
@@ -194,7 +193,7 @@
       box.append(h('div', { class: 'none', text: 'Este grafo está vazio. Adicione tarefas no painel: o grafo aparece aqui conforme você digita.' }));
       return;
     }
-    const { pos, w, h: ht, cols } = layout(tasks);
+    const { pos, w, h: ht } = layout(tasks);
     const st = statusOf(tasks);
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const svg = s('svg', {
@@ -209,17 +208,6 @@
       markerUnits: 'userSpaceOnUse', orient: 'auto',
     }, s('path', { d: 'M0 0 L10 5 L0 10 z', class: cls }));
     svg.append(s('defs', {}, marker('arr-gray', 'arrow-gray'), marker('arr-green', 'arrow-green')));
-
-    // uma "lista" por etapa, com o andamento no cabeçalho
-    cols.forEach((ids, ci) => {
-      const x = PAD + ci * (NW + GX) - 14;
-      const n = ids.filter((id) => byId.get(id).done).length;
-      svg.append(
-        s('rect', { class: 'stage-box', x, y: 12, width: NW + 28, height: ht - 24, rx: 16 }),
-        s('text', { class: 'stage-title', x: x + 16, y: 40, text: `Etapa ${ci + 1}` }),
-        s('text', { class: 'stage-count', x: x + NW + 12, y: 40, text: `${n}/${ids.length}` }),
-      );
-    });
 
     const dimmed = (t) => state.owner && t.owner !== state.owner;
     const edges = [];
@@ -246,7 +234,7 @@
       const status = st.get(t.id);
       const clickable = status !== 'blocked' || t.done;
       const pending = t.deps.filter((d) => byId.has(d) && !byId.get(d).done);
-      const label = `${t.id} ${t.name}${t.owner ? `, responsável ${t.owner}` : ''}: ${STATE_LABEL[status]}`;
+      const label = `${t.id} ${t.name}${t.owner ? `, responsável ${t.owner}` : ''}: ${STATE_LABEL[status]}${t.desc ? `. ${t.desc}` : ''}`;
       const g = s('g', {
         class: `node ${status}${clickable ? ' clickable' : ''}${dimmed(t) ? ' dim' : ''}`,
         transform: `translate(${p.x} ${p.y})`,
@@ -312,6 +300,7 @@
       id: x.id.trim(),
       name: x.name.trim().slice(0, 120),
       owner: x.owner.trim().slice(0, 60),
+      desc: (x.desc || '').trim().slice(0, 1000),
       deps: [...new Set(x.deps)],
       done: !!x.done,
     }));
@@ -392,7 +381,9 @@
           h('input', { name: 'owner', value: t.owner, placeholder: 'Responsável', 'aria-label': 'Responsável',
             oninput: (e) => { t.owner = e.target.value; onDraftChange(); } }),
           h('input', { name: 'deps', value: t.deps.join(', '), placeholder: 'Depende de: T01, T02', 'aria-label': 'Dependências',
-            oninput: (e) => { t.deps = parseDeps(e.target.value); onDraftChange(); } })));
+            oninput: (e) => { t.deps = parseDeps(e.target.value); onDraftChange(); } })),
+        h('textarea', { name: 'desc', class: 'desc', rows: 2, maxlength: 1000, placeholder: 'Descrição (opcional)', 'aria-label': 'Descrição da tarefa',
+          oninput: (e) => { t.desc = e.target.value; onDraftChange(); } }, t.desc || ''));
       refs.rows.append(row);
     });
     const { errors, bad } = validate(state.draft);
@@ -423,9 +414,9 @@
       const parts = line.split('|').map((p) => p.trim());
       const m = parts[0].match(/^(\S+)\s*[-–—:]\s*(.*)$/) || parts[0].match(/^(\S+)\s+(.*)$/);
       if (!m) continue;
-      const entry = { id: m[1], name: m[2], owner: parts[1] || '', deps: parseDeps(parts[2] || ''), done: false };
+      const entry = { id: m[1], name: m[2], owner: parts[1] || '', desc: '', deps: parseDeps(parts[2] || ''), done: false };
       const existing = state.draft.find((t) => t.id === entry.id);
-      if (existing) Object.assign(existing, { name: entry.name, owner: entry.owner, deps: entry.deps });
+      if (existing) Object.assign(existing, { name: entry.name, owner: entry.owner, deps: entry.deps }); // mantém a descrição
       else state.draft.push(entry);
       added++;
     }
@@ -448,6 +439,12 @@
     const app = $('#app');
     app.replaceChildren();
     const showPanel = state.panel || !state.draft.length;
+    const setPanel = (on) => {
+      if (!on && !state.draft.length) { toast('Adicione uma tarefa antes de ocultar o painel.'); return; }
+      state.panel = on;
+      try { localStorage.setItem(PANEL_KEY, on ? '1' : '0'); } catch { /* sem armazenamento: ignora */ }
+      renderGraphPage();
+    };
     // sai da página sem perder o que foi digitado (ou avisa, se há erros)
     const leave = (e) => {
       if (state.saveTimer) persist();
@@ -479,7 +476,8 @@
         oninput: (e) => { state.name = e.target.value; refs.title.textContent = state.name.trim() || g.name; scheduleSave(); } });
       const ta = h('textarea', { placeholder: 'T01 - Modelar banco | Ana\nT02 - Criar API | Bruno | T01\nT07 - Construir árvore AVL | Ana | T01, T02, T03' });
       main.append(h('aside', { class: 'editor' },
-        h('div', { class: 'head' }, refs.nameInput),
+        h('div', { class: 'head' }, refs.nameInput,
+          h('button', { class: 'hide', text: 'Ocultar', title: 'Ocultar o painel de tarefas', onclick: () => setPanel(false) })),
         refs.rows,
         refs.errors,
         h('details', {},
@@ -489,7 +487,7 @@
           h('button', { text: 'Adicionar à lista', onclick: () => { importText(ta.value); ta.value = ''; } })),
         h('div', { class: 'foot' },
           h('button', { class: 'primary', text: '+ Tarefa', onclick: () => {
-            state.draft.push({ id: nextId(), name: '', owner: '', deps: [], done: false });
+            state.draft.push({ id: nextId(), name: '', owner: '', desc: '', deps: [], done: false });
             renderRows(); onDraftChange();
             const inputs = refs.rows.querySelectorAll('input[name="name"]');
             inputs[inputs.length - 1].focus();
@@ -507,11 +505,7 @@
     app.append(h('nav', { class: 'dock', 'aria-label': 'Painel e zoom' },
       h('a', { href: '#/grafos', text: 'Grafos', onclick: leave }),
       h('span', { class: 'sep' }),
-      h('button', { 'aria-pressed': String(showPanel), text: 'Tarefas', title: 'Mostrar ou ocultar o painel de tarefas', onclick: () => {
-        state.panel = !showPanel;
-        try { localStorage.setItem(PANEL_KEY, state.panel ? '1' : '0'); } catch { /* sem armazenamento: ignora */ }
-        renderGraphPage();
-      } }),
+      h('button', { 'aria-pressed': String(showPanel), text: 'Tarefas', title: 'Mostrar ou ocultar o painel de tarefas', onclick: () => setPanel(!showPanel) }),
       h('span', { class: 'sep' }),
       h('button', { text: '−', title: 'Diminuir', 'aria-label': 'Diminuir', onclick: () => setZoom(state.zoom - 0.1) }),
       h('button', { text: '+', title: 'Aumentar', 'aria-label': 'Aumentar', onclick: () => setZoom(state.zoom + 0.1) }),
@@ -555,7 +549,7 @@
         for (const g of graphs) {
           if (store.get(g.id) && !overwrite) continue;
           store.put({ id: g.id, name: g.name.slice(0, 80), tasks: g.tasks.map((t) => ({
-            id: t.id, name: String(t.name ?? ''), owner: String(t.owner ?? ''), deps: t.deps.map(String), done: !!t.done })) });
+            id: t.id, name: String(t.name ?? ''), owner: String(t.owner ?? ''), desc: String(t.desc ?? '').slice(0, 1000), deps: t.deps.map(String), done: !!t.done })) });
           n++;
         }
         toast(`${n} grafo(s) importado(s).`);

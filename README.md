@@ -15,14 +15,15 @@ os dados ficam no navegador (localStorage), sem servidor e sem internet.
 ## Como usar
 
 1. **Criar grafo** na tela inicial.
-2. No painel **Tarefas** (à esquerda), adicione tarefas com sigla, nome, responsável e
-   dependências (`T01, T02`). Sem dependências = tarefa independente. O grafo se redesenha
+2. No painel **Tarefas** (à esquerda), adicione tarefas com sigla, nome, responsável,
+   descrição (opcional, aparece ao passar o mouse sobre o nó) e dependências (`T01, T02`). Sem dependências = tarefa independente. O grafo se redesenha
    enquanto você digita. Em "Colar várias tarefas" dá para importar linhas como:
    `T07 - Construir árvore AVL | Ana | T01, T02, T03`
 3. **Clique nos nós** para concluir: uma tarefa liberada (branca) fica verde, e as setas que saem
    dela também. Quando todas as setas de entrada de uma tarefa bloqueada ficam verdes, ela passa a
    liberada. Clique de novo para desfazer (só se nenhuma tarefa que dependa dela estiver concluída).
-4. O botão **Tarefas** na doca oculta ou mostra o painel, para dar mais espaço ao grafo.
+4. O botão **Ocultar** no topo do painel (ou **Tarefas** na doca) esconde o painel para dar mais
+   espaço ao grafo; o botão **Tarefas** da doca o mostra de novo.
 
 ## Seus dados
 
