@@ -290,9 +290,13 @@
     const tasks = state.draft;
     const st = statusOf(tasks);
     const one = (str) => (str || '').replace(/\s+/g, ' ').trim();
-    const lines = tasks.filter((t) => st.get(t.id) === 'ready').map((t) =>
-      '* ' + [t.id, one(t.owner) || 'sem responsável', one(t.name) || '(sem nome)', one(t.desc)].filter(Boolean).join(' | '));
-    return 'Próximas tarefas\n\n' + (lines.length ? lines.join('\n') : 'Nenhuma tarefa liberada.');
+    const lines = [];
+    for (const t of tasks.filter((x) => st.get(x.id) === 'ready')) {
+      lines.push('* ' + [t.id, one(t.owner) || 'sem responsável', one(t.name) || '(sem nome)'].join(' | '));
+      // descrição recuada logo abaixo da tarefa a que se refere
+      if (one(t.desc)) lines.push('    * ' + one(t.desc));
+    }
+    return 'Próximas tarefas\n\n' + (lines.length ? lines.join('\n').trim() : 'Nenhuma tarefa liberada.');
   }
 
   function showSummary() {
